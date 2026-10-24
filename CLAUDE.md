@@ -9,6 +9,9 @@ overnight or by a player, live, with their body. Fighters are Unitree G1
 humanoid robots in MuJoCo physics. Phones are the controllers. Every move a
 player invents joins the shared library with their name on it.
 
+The world is a mystical fairy tale. The fighters are enchanted clockwork
+automatons, woken by fairy magic, dueling inside a glowing fairy ring.
+
 Pitch line: "Every move you invent teaches a real robot how to move."
 
 ## How it plays
@@ -33,6 +36,26 @@ Pitch line: "Every move you invent teaches a real robot how to move."
 Demo moments that must work: the library counter (agent moves + player moves),
 a Forge move made by a judge in under 30 s, an instant library hit, a tap
 dodge, a signature move landing with a real fall, a live wildcard.
+
+## Look and feel: a mystical fairy tale
+- Lore: in an enchanted forest, fairy magic wakes old clockwork automatons and
+  they duel inside a fairy ring. That's why robots cast spells.
+- Fighters are G1 robots wearing a fairy-tale costume shell: helms, hats,
+  hoods, cloaks, wings, antlers, glowing runes. Costume pieces are render-only
+  meshes attached to G1 bodies in three.js. They never touch physics.
+- Arena: a glowing ring of mushrooms in a moonlit forest clearing, with
+  fireflies, drifting fairy dust and soft fog.
+- Effects sparkle. Fire is a hearth-fire orb trailing embers, ice is frost
+  crystals, lightning is crackling wisp-light, shadow is moonlit smoke,
+  physical is a burst of thorns and petals. On a KO the robot really falls
+  (physics), then its runes fade and fairy dust drifts up.
+- UI looks like an illuminated storybook: parchment panels, gold trim, a serif
+  display font. Move cards on the phone look like spell cards.
+- In-game type names: Might (physical), Flame (fire), Frost (ice),
+  Storm (lightning), Shadow (shadow). Code keeps the ids.
+- Assets are original or CC0 only (Kenney, Quaternius). Folklore archetypes
+  (knights, witches, sprites, wolves) are fine. No characters or looks from
+  existing films, games or books.
 
 ## Devices
 | Device | Runs |
@@ -107,7 +130,7 @@ Every move is a spec plus a motion. Many specs can share one motion.
   "aliases": ["thunder palm", "lightning push", "shock palm"],
   "type": "lightning",
   "kind": "projectile",
-  "effect": "bolt",
+  "effect": "wisp_bolt",
   "kimodo_prompt": "a person steps forward and thrusts both palms out at chest height",
   "hit_joint": "r_hand",
   "duration": 1.2,
@@ -123,7 +146,8 @@ Every move is a spec plus a motion. Many specs can share one motion.
 ```
 - `type`: physical | fire | ice | lightning | shadow
 - `kind`: melee | projectile | strike (from above) | shockwave | defend
-- `effect`: visual tag the client maps to an effect: fireball, bolt, frost, smoke, shockwave, none
+- `effect`: visual tag the client maps to a fairy-tale effect: ember_orb, wisp_bolt,
+  frost_crystals, moon_smoke, thorn_burst, fairy_dust, shockwave, none
 - `hit_joint`: head | chest | l_hand | r_hand | l_foot | r_foot (the sim maps these to G1 bodies)
 - `source`: agent (overnight) | forge (player made) | live (wildcard)
 - `duration` 0.8 to 1.5 s. `power` 1 to 3. `stability` and `originality` 0 to 1.
@@ -141,7 +165,7 @@ This replaces main's joint-positions format. MuJoCo drives the G1 by joint angle
 
 ## Physics (client/src/sim, MuJoCo in the browser)
 - Two Unitree G1s from MuJoCo Menagerie. Every character uses the same body;
-  characters differ by color, glow and multipliers.
+  characters differ by costume, glow and multipliers.
 - Active ragdoll. PD motors track the move's joint angles every step. A hidden
   balance assist (force and torque on the pelvis) keeps the robot upright and
   on its planned root path.
@@ -184,18 +208,18 @@ damage = base x type_mult(attacker) x weak_mult(defender)
 - Best of 3 rounds, 60 s each.
 
 ## Characters
-Same G1 body; color, glow and multipliers differ.
+Five enchanted automatons. Same G1 body; costume, glow and multipliers differ.
 
-| Character | Look | Deals 2x | Deals 0.5x | Takes 1.5x from |
+| Character | Costume | Deals 2x | Deals 0.5x | Takes 1.5x from |
 | --- | --- | --- | --- | --- |
-| Brick | stone gray | physical | fire | shadow |
-| Ember | orange glow | fire | physical | ice |
-| Volt | yellow, cooldowns 0.8x | lightning | ice | physical |
-| Frost | pale blue | ice | lightning | fire |
-| Shade | black, dark glow | shadow | physical | lightning |
+| Sir Bramble, the Thorn Knight | mossy iron armor wrapped in briar roses | physical | fire | shadow |
+| Marigold, the Hearth Witch | pointed lantern hat, ember-stitched cloak | fire | physical | ice |
+| Flicker, the Storm Sprite | crackling dragonfly wings; cooldowns 0.8x | lightning | ice | physical |
+| Rime, the Winter Stag | antlered frost-crystal helm, pale blue glow | ice | lightning | fire |
+| Hush, the Moon Wolf | wolf hood, starry night cloak, violet glow | shadow | physical | lightning |
 
-Original characters only. Moves can riff on famous attacks, but nothing on the
-select screen should be someone else's character.
+Original characters only. Moves can riff on famous attacks and old fairy tales,
+but nothing on the select screen should be someone else's character.
 
 ## AI agents
 Claude agents use `claude-opus-5-5` with structured outputs for JSON. Set
@@ -209,7 +233,7 @@ effort explicitly: `low` on live paths, `high` for overnight work. Check
 | Effect Designer | server/ | move name -> `type`, `kind`, `effect` | Forge, live |
 | Balance Referee | server/ (no LLM) | motion -> `stability`, `originality` | every new move |
 | Voice Matcher | server/ (no LLM) | transcript -> move id, under 50 ms | every shout |
-| Commentator | server/ | recent fight events -> one short hype line, spoken by TTS on the game screen | fights |
+| Commentator | server/ | recent fight events -> one short line in a storybook narrator's voice ("And lo, the Thorn Knight falls!"), spoken by TTS on the game screen | fights |
 | Rival AI | server/ | fight state -> what to shout | stretch, single player |
 
 Balance Referee: run the motion on a G1 in headless MuJoCo (Python `mujoco`)
@@ -251,9 +275,13 @@ Nicknames, no accounts. The phone keeps its move ids in localStorage.
 
 ## Overnight Library Builder (agent/)
 1. GET `/library/stats` to see which types are thin.
-2. Ask Claude for 50 specs in one call. Rotate themes: mythology, wuxia,
-   superheroes, pro wrestling, dance, animals, weather, everyday objects played
-   for laughs. Pass the existing names for that theme so it doesn't repeat.
+2. Ask Claude for 50 specs in one call. Rotate fairy-tale themes: knights and
+   dragons, witches and potions, forest spirits and beasts, winter tales,
+   moonlight and night creatures, giants and trolls, enchanted household
+   objects played for laughs, plus plain combat (punches, kicks, dodges) so
+   common shouts always hit. Pass the existing names for that theme so it
+   doesn't repeat. Names sound like spells ("Bramble Bash", "Moonlit Howl");
+   `kimodo_prompt` stays a plain body description.
 3. Validate the JSON. Drop specs whose name or aliases already exist.
 4. Reuse motions: if a `kimodo_prompt` is a near-duplicate (embedding
    similarity over 0.95) of one already generated, point at that motion.
