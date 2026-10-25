@@ -23,7 +23,7 @@ import { DEFAULT_ANGLES, NJ } from "./g1.ts";
 import { axisAngleQuat, clamp, dist2, finite3, qmul, tiltOf, yawOf } from "./math.ts";
 import type { MotionAsk, MotionClip, MotionName, MotionSource, StrikeWindow } from "./motion.ts";
 import { contextFromReference } from "./planner.ts";
-import { type Frame, REF_HZ, Reference, copyFrame, mixFrames, poseFrame, resample, sanitizeFrames, waistToHips } from "./reference.ts";
+import { ARM_JOINTS, type Frame, REF_HZ, Reference, type Snap, type Squat, armFastWeights, copyFrame, deepenSquat, mixFrames, poseFrame, resample, sanitizeFrames, snapArms, waistToHips } from "./reference.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SonicController, type SonicPolicy } from "./sonic.ts";
 import { type MoveSpec, SPELL, checkSpec } from "./spells.ts";
@@ -65,7 +65,23 @@ export const TUNE = {
   crowd: 0.85,        // closer than this: step back right away
   // pelvis distance each punch is thrown from (the punch itself lunges in about 0.1 m)
   punchRange: { "punch.leftJab": 0.66, "punch.rightJab": 0.66, "punch.leftHook": 0.72, "punch.rightHook": 0.72 } as Record<PunchName, number>,
-  approachTime: 2.4,  // s to step in before throwing anyway
+  approachTime: 2.4,  // s of stepping in before throwing anyway (time spent waiting on a late plan does not count)
+  // spells' fast arm moves exaggerated so SONIC's strike comes closer to the clip's speed (snapArms;
+  // s 1 turns it off). Spiral Sphere's thrust 2.4 -> 3.1 m/s (clip 3.4), Fireball and Earth Wall a
+  // little faster, Thunder Call unchanged (its elbow is held back by SONIC's short target lead, not
+  // the reference); average hand error the same, nobody falls.
+  spellSnap: { s: 1.25, thr: 0.35, sigma: 2, gain: 1.5, wrist: 0.3 } as Snap,
+  // the strike feed-forward (feedForward): during an attack spell's fast arm strokes the arms' PD law
+  // also gets g x the reference joint velocity, and kdb x more damping to follow it and brake with it
+  // (SONIC's targets lead the arm too little for the PD gains to reach a strike's speed). With snap
+  // 1.25 instead of 1.5: Thunder Call's stroke 1.9 -> 3.2 m/s along the clip's motion (clip 4.6),
+  // Fireball 2.4 -> 3.3 (4.3), Spiral Sphere the same speed with 3 cm less overshoot; same hand
+  // error, no rebound, nobody falls. Off for defend spells (Earth Wall overshot for little speed).
+  // wrist: share for the wrists; ramp: frames to fade in at the clip's start and out at its end.
+  spellFF: { g: 0.7, kdb: 1, wrist: 0.3, ramp: 4 },
+  // spells' deep crouches bent further so SONIC reaches their depth (deepenSquat): Earth Wall's pelvis
+  // bottoms within ~1 cm of the clip's 0.54 m instead of 7-8 cm above; moves above 0.69 m untouched
+  spellSquat: { gain: 2.66, below: 0.69 } as Squat,
   punchRecover: 0.35, // s after the strike window before footwork takes over again
   knockdownImpulse: 55, knockdownPush: 30, pulse: 0.08, maxImpulse: 150,
   poiseRegen: 0.2, poiseDelay: 2,  // balance comes back at 0.2/s once 2 s pass without a hit
@@ -76,6 +92,8 @@ export const TUNE = {
   koSlump: 1.2,       // s a KO'd body folds before it goes limp
   maxClip: 5,         // s, longest clip playMove accepts
   reanchor: 0.25,     // m the motion may drift from the body before it is moved back
+  stepLean: 0.25,     // rad tilted past the motion: footwork holds the guard instead of stepping
+  dodgeLean: 0.6,     // s a dodge's lean overlay holds before it eases out
   blockArc: (110 * Math.PI) / 180, // a block covers strikes coming from within this of where the pelvis points
   // Guard tuck: joint offsets (rad, MuJoCo signs) added to the motion's arms while idle, staggered
   // or defending, eased in and out over `ease` s (see updateOverlays). The planner's guard flares
@@ -122,12 +140,15 @@ interface Pulse { body: number; local: number[]; force: number[]; left: number }
 type Purpose = "footwork" | "approach" | "punch" | "defense" | "stagger" | "getup";
 interface AskOpts { move?: [number, number]; speed?: number; facing?: [number, number]; fromRobot?: boolean; stage?: number; seed?: number }
 interface Inflight { token: number; purpose: Purpose; stage: number; at: number; onFail: () => void }
-interface Punch { name: PunchName; power: number; phase: "approach" | "throw"; stepping: boolean; approachT: number }
+/** Stepping in before an attack: s spent stepping, s spent standing waiting for a step plan, whether a step was asked for. */
+interface Approach { approachT: number; waitT: number; stepping: boolean }
+interface Punch extends Approach { name: PunchName; power: number; phase: "approach" | "throw" }
 /** A spell or other server move (spells.ts): its clip, when it hits, and (melee) its step-in. */
-interface Spell { spec: NonNullable<ReturnType<typeof checkSpec>>; frames: Frame[]; hitT: number; phase: "approach" | "cast"; stepping: boolean; approachT: number; gap: number }
+interface Spell extends Approach { spec: NonNullable<ReturnType<typeof checkSpec>>; frames: Frame[]; hitT: number; phase: "approach" | "cast"; gap: number }
 interface Move { name: string; endT: number; punch: Punch | null; spell?: Spell | null }
 
-const freshRise = () => ({ stage: 0, stageT: 0, tries: 0, fails: 0, failed: false, assist: 0, cap: 0, startT: 0 });
+// full: s of the current stage-0 answer when it goes all the way to standing (one get-up clip), else 0
+const freshRise = () => ({ stage: 0, stageT: 0, tries: 0, fails: 0, failed: false, assist: 0, cap: 0, startT: 0, full: 0 });
 
 export interface FighterContext {
   index: Who;
@@ -156,7 +177,16 @@ export class Fighter {
   stance: Stance = "idle";
   stanceT = 0;
   opponent!: Fighter;
-  motion: MotionSource | null = null;
+  /**
+   * Where motion comes from (arena.setMotion). A source that keeps per-fighter state (forAsker: a
+   * clip library's guard variant and loop phase) is asked through its view for this fighter, so its
+   * asks carry who and character; any other source is used as it is.
+   */
+  get motion(): MotionSource | null { return this.motionView; }
+  set motion(src: MotionSource | null) { this.motionView = src?.forAsker ? src.forAsker(this) : src; }
+  private motionView: MotionSource | null = null;
+  /** The character this fighter is (the rig sets it: "elf", "knight"); clip libraries may have its own guard. */
+  character?: string;
   /** 0..1 balance; hits drain it, it refills when left alone; at 0 the fighter goes down. */
   poise = 1;
   intent = "";
@@ -181,6 +211,10 @@ export class Fighter {
   private gen = 0;
   private reqToken = 0;
   private inflight: Inflight | null = null;
+  /** s the motion source took to answer recent step-in asks (stepIn asks the next step that early) */
+  private stepLag = 0.5;
+  /** The playing spell's clip for the strike feed-forward: where it starts on the frame clock, its length, its arms' fast weights. */
+  private armFF: { start: number; n: number; w: number[][] | null; attack: boolean } | null = null;
   private nextFootworkAt = 0;
   private sawAttack = false;
   private circleDir = 1;
@@ -193,7 +227,7 @@ export class Fighter {
   private lastHitT = -Infinity;
   private graceUntil = 0;
   private staggerFor = 0;
-  private defense: { kind: Defense; until: number } | null = null;
+  private defense: { kind: Defense; until: number; from: number } | null = null;
   private move: Move | null = null;
   private rise = freshRise();
   private mass = 0;
@@ -306,7 +340,7 @@ export class Fighter {
     this.gen++; this.inflight = null; // the footwork step that was coming is out of date
     this.setStance("move");
     this.attackSerial++;
-    this.move = { name, endT: this.clock() + LIMITS.move - 0.5, punch: { name, power: Math.min(power, 3), phase: "approach", stepping: false, approachT: 0 } };
+    this.move = { name, endT: this.clock() + LIMITS.move - 0.5, punch: { name, power: Math.min(power, 3), phase: "approach", stepping: false, approachT: 0, waitT: 0 } };
     this.intent = `stepping in: ${name.slice(6)}`;
     this.emit({ type: "move", who: this.index, name });
     return true;
@@ -364,7 +398,7 @@ export class Fighter {
     this.effects = this.effects.filter((e) => e.tag !== "defense");
     this.setStance("move");
     this.attackSerial++;
-    const spell: Spell = { spec, frames, hitT, phase: spec.kind === "melee" ? "approach" : "cast", stepping: false, approachT: 0, gap: SPELL.meleeGap + lunge };
+    const spell: Spell = { spec, frames, hitT, phase: spec.kind === "melee" ? "approach" : "cast", stepping: false, approachT: 0, waitT: 0, gap: SPELL.meleeGap + lunge };
     this.move = { name: spec.name, endT: this.clock() + LIMITS.move - 0.5, punch: null, spell };
     if (spell.phase === "cast") this.castNow(this.move, spell);
     else this.intent = `stepping in: ${spec.name}`;
@@ -378,12 +412,16 @@ export class Fighter {
     this.gen++; this.inflight = null; // drop a stepping-in answer still coming
     const start = this.startFrame();
     this.raw.splice(sp.frames.map(copyFrame), start, 8);
-    this.ref.splice(waistToHips(sp.frames.map(copyFrame)), start, 8);
+    const { lo, hi } = this.robot;
+    this.ref.splice(deepenSquat(waistToHips(snapArms(sp.frames.map(copyFrame), TUNE.spellSnap, lo, hi)), TUNE.spellSquat, lo, hi), start, 8);
     const t0 = this.timeOfFrame(start);
     const o = this.world.rootPos(this.opponent.robot);
     this.combat.cast(this, this.opponent, sp.spec, t0 + sp.hitT, [o[0], o[1]]);
+    this.armFF = { start, n: sp.frames.length, w: armFastWeights(sp.frames, TUNE.spellSnap), attack: sp.spec.kind !== "defend" };
     mv.endT = t0 + (sp.frames.length - 1) / REF_HZ + 0.1;
     this.intent = `${sp.spec.kind === "defend" ? "raising" : "casting"} ${sp.spec.name}`;
+    const s = sp.spec;
+    this.emit({ type: "cast", who: this.index, name: s.name, kind: s.kind, spellType: s.type, effect: s.effect, power: s.power, hitIn: Math.max(0, t0 + sp.hitT - this.clock()), target: [o[0], o[1], o[2]] });
   }
 
   /**
@@ -406,14 +444,18 @@ export class Fighter {
     const asked = seconds !== undefined && Number.isFinite(seconds) ? seconds : frames ? (frames.length - 1) / REF_HZ : byKind;
     const dur = clamp(asked, 0.2, LIMITS.defend - 0.1);
     const now = this.clock();
-    this.defense = { kind, until: now + dur };
+    this.defense = { kind, until: now + dur, from: now };
     if (this.stance !== "defend") this.setStance("defend");
     else this.stanceT = 0;
     this.gen++; this.inflight = null; // whatever was coming (a step, the previous dodge) is out of date
     // directions are taken from the line to the opponent: that's where the attack comes from
     const [ox, oy] = this.facingOpponent(), f = [ox, oy, 0], left = [-oy, ox, 0];
     this.effects = this.effects.filter((e) => e.tag !== "defense");
-    const add = (e: Omit<Effect, "tag" | "t" | "dur">) => this.effects.push({ tag: "defense", t: 0, dur, ...e });
+    // a dodge's lean is a slip, not a pose to hold: held 1.5 s while the feet step it drifts from
+    // 0.3 to 0.75 rad and tips the fighter over, so it eases out after TUNE.dodgeLean s (the dodge
+    // itself, what the rules evade with, lasts the whole defense)
+    const lean = kind.startsWith("dodge") ? Math.min(dur, TUNE.dodgeLean) : dur;
+    const add = (e: Omit<Effect, "tag" | "t" | "dur">) => this.effects.push({ tag: "defense", t: 0, dur: lean, ...e });
     switch (kind) {
       case "block":
         add({ attack: 0.08, release: 0.15, tilt: { axis: this.tiltAxis(f), angle: 0.08 },
@@ -448,13 +490,27 @@ export class Fighter {
     } else {
       const step = kind === "dodge.left" ? left : kind === "dodge.right" ? [-left[0], -left[1]] : kind === "dodge.back" ? [-f[0], -f[1]] : null;
       this.ask(kind, "defense", step ? { move: [step[0], step[1]], speed: 0.9 } : {}, (got) => {
-        if (got && !step) dropPose();
+        if (got && got.active !== undefined && Number.isFinite(got.active)) this.clipDefense(got);
+        else if (got && !step) dropPose();
         else if (!got && cancelling) this.ask("guard", "defense", {});
       });
     }
     this.intent = kind;
     this.emit({ type: "defend", who: this.index, kind });
     return true;
+  }
+
+  /**
+   * A defense the motion source answered with a recorded clip: the clip moves the body, so the
+   * overlay's pose and lean go, and the defense lasts as long as the clip acts it out (its `active`
+   * time from when it starts), up to LIMITS.defend. It only ever gets longer.
+   */
+  private clipDefense(c: MotionClip) {
+    const d = this.defense;
+    if (!d) return;
+    for (const e of this.effects) if (e.tag === "defense") { e.joints = undefined; e.tilt = undefined; }
+    const end = Math.min(this.timeOfFrame(c.at) + (c.active ?? 0), d.from + LIMITS.defend - 0.1);
+    if (Number.isFinite(end)) d.until = Math.max(d.until, end);
   }
 
   knockOut() { this.run(() => this.koNow()); }
@@ -500,9 +556,12 @@ export class Fighter {
     this.poise = Math.max(0, this.poise - poiseHit);
     this.lastHitT = now;
     const knockdown = !blocked && (impulse >= TUNE.knockdownImpulse || this.poise <= 0 || !!imp.knockdown);
-    if (knockdown) impulse = Math.min(impulse, TUNE.knockdownPush);
+    // a knockdown folds the fighter where it stands, unless the hit throws it (a spell's launch: back and up)
+    const launch = knockdown && Number.isFinite(imp.launch) && imp.launch! > 0;
+    if (knockdown) impulse = launch ? Math.min(imp.launch!, TUNE.maxImpulse) : Math.min(impulse, TUNE.knockdownPush);
     const force = impulse / TUNE.pulse;
-    this.pulses.push({ body, local: this.world.toLocal(body, imp.point), force: [dir[0] * force, dir[1] * force, dir[2] * force], left: TUNE.pulse });
+    const pd = launch ? (() => { const v = [dir[0], dir[1], dir[2] + SPELL.launchLift], n = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / n, v[1] / n, v[2] / n]; })() : dir;
+    this.pulses.push({ body, local: this.world.toLocal(body, imp.point), force: [pd[0] * force, pd[1] * force, pd[2] * force], left: TUNE.pulse });
     if (this.pulses.length > 6) this.pulses.shift();
     this.lastEvent = `${blocked ? "blocked " : ""}${imp.name} to the ${imp.zone} (${impulse.toFixed(0)} N s)`;
     const res: HitResult = { landed: true, blocked, knockdown };
@@ -624,11 +683,32 @@ export class Fighter {
     });
     try {
       await this.ctl.tick(this.ref);
+      this.feedForward();
     } finally {
       this.ref.advance();
       this.raw.advance();
       this.nowT += dt;
     }
+  }
+
+  /**
+   * The strike feed-forward for this tick (TUNE.spellFF): while an attack spell's or a recorded punch's clip plays, each
+   * arm joint gets its reference velocity (g, faded by how fast the clip swings that arm, and in and
+   * out over `ramp` frames) and that much extra damping; zero otherwise, which is SONIC's own PD law.
+   */
+  private feedForward() {
+    const c = this.ctl, ff = this.armFF;
+    c.ffVel.fill(0); c.ffDamp.fill(0);
+    if (!ff || !ff.w || !ff.attack || this.stance !== "move" || !(this.move?.spell?.phase === "cast" || this.move?.punch?.phase === "throw") || !c.active || c.hold || c.stiffness !== 1) return;
+    const i = this.ref.now - ff.start;
+    if (i < 0 || i > ff.n - 1) return;
+    const k = TUNE.spellFF, ramp = Math.min(1, (i + 1) / k.ramp, (ff.n - 1 - i) / k.ramp);
+    ARM_JOINTS.forEach((js, side) => js.forEach((j, m) => {
+      const e = ff.w![side][i] * ramp * (m < 4 ? 1 : k.wrist);
+      if (!(e > 0)) return;
+      c.ffVel[j] = k.g * e * this.ref.jointVel(this.ref.now, j);
+      c.ffDamp[j] = k.kdb * e;
+    }));
   }
 
   /** Per 5 ms physics step: hit pushes, the get-up lift, then PD. */
@@ -800,7 +880,7 @@ export class Fighter {
     const token = ++this.reqToken, gen = this.gen;
     this.inflight = { token, purpose, stage, at: this.clock(), onFail: fail };
     this.seed = (this.seed * 48271) % 2147483647;
-    const msg: MotionAsk = { name, context, contextFrame, startFrame: this.ref.now + 2, facing: opts.facing ?? this.facingOpponent(), move: opts.move, speed: opts.speed, seed: opts.seed ?? this.seed };
+    const msg: MotionAsk = { name, context, contextFrame, startFrame: this.ref.now + 2, facing: opts.facing ?? this.facingOpponent(), move: opts.move, speed: opts.speed, seed: opts.seed ?? this.seed, urgent: purpose !== "footwork" };
     const current = () => gen === this.gen && this.inflight?.token === token;
     let p: Promise<MotionClip | null>;
     try { p = Promise.resolve(this.motion.get(msg)); } catch (e) { p = Promise.reject(e); }
@@ -861,7 +941,13 @@ export class Fighter {
     const [near, far] = oppDown ? TUNE.rangeDown : TUNE.range;
     let name: MotionName = "step", mx = 0, my = 0, speed = 0.35;
     const r = Math.hypot(me[0], me[1]);
-    if (engaged && dist > 0.6) {
+    // still leaning out of a dodge or a shove (more than the motion asks): settle in the guard
+    // before stepping anywhere; a step taken leaning 40 deg over is a fall
+    const fr = this.ref.current(), lean = tiltOf(this.world.rootQuat(this.robot)) - tiltOf([fr[3], fr[4], fr[5], fr[6]]);
+    if (lean > TUNE.stepLean) {
+      name = "guard";
+      this.intent = "finding balance";
+    } else if (engaged && dist > 0.6) {
       // an attack is coming: footwork doesn't run from it (getting away is a defense, defend())
       name = "guard";
       this.intent = "guard up";
@@ -892,7 +978,12 @@ export class Fighter {
     const n = Math.hypot(mx, my);
     if (n > 1e-6) { mx /= n; my /= n; }
     const hold = crowded ? 0.25 : 0.8 + this.rand() * 0.6;
-    this.ask(name, "footwork", { move: [mx, my], speed }, () => { this.nextFootworkAt = this.clock() + hold; });
+    // a step clip is one whole step: let it play out before asking for the next (crowded footwork
+    // re-asks every 0.25 s, which cut 0.9 s clips short); a plan just continues from where it is
+    this.ask(name, "footwork", { move: [mx, my], speed }, (clip) => {
+      const left = clip?.source.startsWith("clip:step") ? this.ref.remaining / REF_HZ - this.stepLag : 0;
+      this.nextFootworkAt = this.clock() + Math.max(hold, left);
+    });
   }
 
   /**
@@ -942,15 +1033,8 @@ export class Fighter {
     const sp = mv.spell;
     if (sp && sp.phase === "approach") {
       if (!this.opponent.standing()) { this.intent = "opponent down"; this.toIdle("interrupted"); return; }
-      sp.approachT += dt;
-      const ready = this.distanceTo(this.opponent) <= sp.gap && this.closingSpeed() > -0.15;
-      if (!ready && sp.approachT < TUNE.approachTime) {
-        if (!this.inflight && (!sp.stepping || this.ref.remaining < 20)) {
-          sp.stepping = true;
-          this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 });
-        }
-        return;
-      }
+      // the whole approach leaves the clip its full length inside the move's time limit
+      if (this.stepIn(sp, dt, sp.gap, LIMITS.move - 0.5 - (sp.frames.length - 1) / REF_HZ)) return;
       this.castNow(mv, sp);
       return;
     }
@@ -958,20 +1042,36 @@ export class Fighter {
     const pu = mv.punch;
     if (pu && pu.phase === "approach") {
       if (!this.opponent.standing()) { this.intent = "opponent down"; this.toIdle("interrupted"); return; }
-      pu.approachT += dt;
-      // in range and not drifting apart (a punch thrown while separating falls short)
-      const ready = this.distanceTo(this.opponent) <= TUNE.punchRange[pu.name] && this.closingSpeed() > -0.15;
-      if (!ready && pu.approachT < TUNE.approachTime) {
-        if (!this.inflight && (!pu.stepping || this.ref.remaining < 20)) {
-          pu.stepping = true;
-          this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 });
-        }
-        return;
-      }
+      // the whole approach leaves the punch's plan (up to 3 s, throwNow) room inside the move's time limit
+      if (this.stepIn(pu, dt, TUNE.punchRange[pu.name], LIMITS.move - 3.5)) return;
       this.throwNow(mv, pu);
       return;
     }
     if (this.clock() > mv.endT) this.toIdle();
+  }
+
+  /**
+   * One tick of stepping in before a punch or a melee spell: true while still on the way, false once
+   * within `range` (and not drifting apart: an attack started while separating falls short), out of
+   * patience (TUNE.approachTime of actual stepping) or past `maxT` all told. Standing still waiting
+   * for a late step plan (a busy planner) doesn't use up the patience. The next step is asked for
+   * as long before the current one runs out as the last step took to arrive (stepLag): a plan that
+   * takes a few hundred ms arrives in time, and an instant answer (a step clip) doesn't cut the
+   * step before it short.
+   */
+  private stepIn(a: Approach, dt: number, range: number, maxT: number): boolean {
+    if (this.inflight && this.ref.remaining === 0) a.waitT += dt; else a.approachT += dt;
+    const ready = this.distanceTo(this.opponent) <= range && this.closingSpeed() > -0.15;
+    if (ready || a.approachT >= TUNE.approachTime || a.approachT + a.waitT >= maxT) return false;
+    const lead = clamp(Math.round((this.stepLag + 0.06) * REF_HZ), 3, 30); // frames
+    if (!this.inflight && (!a.stepping || this.ref.remaining < lead)) {
+      a.stepping = true;
+      const asked = this.clock();
+      this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 }, (clip) => {
+        if (clip) this.stepLag = 0.5 * this.stepLag + 0.5 * Math.min(1, this.clock() - asked);
+      });
+    }
+    return true;
   }
 
   /** In range (or out of patience): plan the punch and arm its strike when the plan arrives. */
@@ -982,6 +1082,9 @@ export class Fighter {
     mv.endT = this.clock() + 3; // the plan has this long to arrive and play
     this.ask(pu.name, "punch", {}, (clip) => {
       if (!clip) { this.toIdle("interrupted"); return; }
+      // a recorded punch gets the strike feed-forward too: its fist 0.2-0.5 m/s faster and it lands
+      // as often or more (the planner's own punches already come out at speed)
+      this.armFF = clip.source.startsWith("clip:") ? { start: clip.at, n: clip.frames.length, w: armFastWeights(clip.frames, TUNE.spellSnap), attack: true } : null;
       const t0 = this.timeOfFrame(clip.at);
       const strikes = (asWindows(clip.strikes) ?? []).filter((w) => w && Number.isFinite(w.to)).map((w) => ({ ...w, power: w.power * pu.power }));
       this.combat.arm(this, this.opponent, strikes, t0);
@@ -1068,7 +1171,12 @@ export class Fighter {
     this.intent = stage === 0 ? "getting up: onto knees" : "getting up: standing";
     if (stage === 1) { this.rise.cap = Math.max(this.rise.assist > 0 ? this.rise.cap : 0, TUNE.standHelp); this.rise.assist = Math.max(this.rise.assist, 0.01); }
     this.ask(stage === 0 ? "getup.knees" : "getup.stand", "getup", { fromRobot: true, stage, speed: -1, seed: TUNE.getupSeed ?? undefined }, (clip) => {
-      if (!clip) this.rise.failed = true;
+      if (!clip) { this.rise.failed = true; return; }
+      // a get-up clip that ends standing (one clip from the floor all the way up) plays to its end.
+      // Kimodo's own fighting stance sits right at upHeight (pelvis 0.655-0.67 m, 13-16 deg), so a
+      // clip's last frame counts as standing with a looser test (a kneel is about 0.38 m)
+      const last = clip.frames[clip.frames.length - 1];
+      this.rise.full = stage === 0 && clip.source.startsWith("clip") && last[2] > 0.55 && tiltOf([last[3], last[4], last[5], last[6]]) < 0.45 ? (clip.frames.length - 1) / REF_HZ : 0;
     });
   }
 
@@ -1086,7 +1194,8 @@ export class Fighter {
     }
     r.stageT += dt;
     // onto the next stage once the body is up on its knees
-    if (!lastStage && h > 0.16 && tilt < 0.9 && this.ref.remaining < 20 && r.stageT > 0.3) {
+    // (one that goes all the way up gets to finish, and 0.5 s more for the body to catch up)
+    if (!lastStage && h > 0.16 && tilt < 0.9 && (r.full > 0 ? r.stageT > r.full + 0.5 : this.ref.remaining < 20) && r.stageT > 0.3) {
       r.stage = 1;
       this.planStage();
       return;
@@ -1099,7 +1208,7 @@ export class Fighter {
     }
     // the plan ran out short of the goal: plan again from here, with a bit more help each time,
     // so the body still follows a human get-up instead of levitating
-    if (this.ref.remaining === 0 && r.stageT > 0.8) {
+    if (this.ref.remaining === 0 && r.stageT > Math.max(0.8, r.full + 0.5)) {
       r.tries++;
       r.cap = Math.min(0.95, (r.assist > 0 ? r.cap : 0) + TUNE.retryHelp);
       r.assist = Math.max(r.assist, 0.01);

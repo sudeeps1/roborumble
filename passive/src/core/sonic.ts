@@ -79,6 +79,13 @@ export class SonicController {
    */
   overlayQuat: number[] = [1, 0, 0, 0];
   readonly overlayJoints = new Float64Array(NJ);
+  /**
+   * Velocity feed-forward (rad/s, MuJoCo order) and the matching extra damping (x KD) for the PD law:
+   * tau = stiffness * KP * (target - q) + KD * (1 + ffDamp) * (ffVel - qd). Zero (the default) is
+   * SONIC's own law. Set every tick by the Fighter during a spell's fast arm strokes (TUNE.spellFF).
+   */
+  readonly ffVel = new Float64Array(NJ);
+  readonly ffDamp = new Float64Array(NJ);
 
   private hAng = new Float32Array(HIST * 3);
   private hQ = new Float32Array(HIST * NJ);
@@ -108,6 +115,7 @@ export class SonicController {
     this.lastAction.fill(0);
     this.overlayQuat = [1, 0, 0, 0];
     this.overlayJoints.fill(0);
+    this.ffVel.fill(0); this.ffDamp.fill(0);
     for (let k = 0; k < HIST; k++) this.pushState();
     const q = this.world.data.qpos;
     for (let j = 0; j < NJ; j++) this.target[j] = q[this.robot.qpos[j]];
@@ -199,7 +207,7 @@ export class SonicController {
     for (let j = 0; j < NJ; j++) {
       let tau: number;
       if (this.active) {
-        tau = this.stiffness * KP[j] * (goal[j] - q[r.qpos[j]]) - KD[j] * v[r.qvel[j]];
+        tau = this.stiffness * KP[j] * (goal[j] - q[r.qpos[j]]) + KD[j] * (1 + this.ffDamp[j]) * (this.ffVel[j] - v[r.qvel[j]]);
       } else {
         tau = -0.5 * KD[j] * v[r.qvel[j]];
       }

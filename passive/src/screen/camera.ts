@@ -29,7 +29,7 @@ export const CAMERA = {
   homePull: 0.35,                  // 0..1: how much it leans back toward home when the fighters turn away from it
   zoomOutLag: 0.22, zoomInLag: 0.85, centreLag: 0.3,
   handheld: { pos: 0.022, rot: 0.004, hz: 0.21 },
-  shake: { decay: 1.5, pos: 0.06, rot: 0.024, roll: 0.03, hz: 16, max: 1 },
+  shake: { decay: 1.6, pos: 0.05, rot: 0.017, roll: 0.02, hz: 11, max: 1 }, // lively but easy to watch: slower, smaller jolts
 };
 
 // ---------------------------------------------------------------- noise
@@ -160,7 +160,7 @@ export class Director {
       // increasing azimuth moves the camera toward screen-right; swing away from the winner so the winner
       // stands behind the fallen fighter instead of between it and the camera
       const sgn = right >= 0 ? -1 : 1;
-      return { az: wrap(az0 + sgn * (0.6 + since * 0.05)), dist: 2.9, height: 0.7, centre: s.at.clone().setZ(0), lookZ: 0.4, fov: 34 };
+      return { az: wrap(az0 + sgn * (0.6 + since * 0.05)), dist: 3.6, height: 0.7, centre: s.at.clone().setZ(0), lookZ: 0.6, fov: 34 }; // the winner's head clears the HUD
     }
     // victory: in front of the winner, slightly low (heroic), slowly pushing in
     const facing = toOther; // the winner faces the loser

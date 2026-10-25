@@ -4,16 +4,17 @@
 // flashes, dust and stone chips where a body hits the floor, the aura of a fighter channeling a spell.
 // Everything is pooled; nothing is allocated per frame. MuJoCo frame (meters, Z up).
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Arena } from "../core/arena.ts";
 import type { ArenaEvent, Who } from "../core/events.ts";
-import type { Limb } from "../core/body.ts";
+import { LIMBS, type Limb } from "../core/body.ts";
 import type { MoveSpec } from "../core/spells.ts";
 
 /** Per spell type: white-hot core, glow, sparks. The HUD uses the same table. */
 export const TYPE_COLORS: Record<string, { core: number; glow: number; spark: number }> = {
   fire: { core: 0xfff0c8, glow: 0xff5a14, spark: 0xffa040 },
   ice: { core: 0xf2ffff, glow: 0x38d0ff, spark: 0xb8f2ff },
-  lightning: { core: 0xffffff, glow: 0xffd84a, spark: 0xfff4b0 },
+  lightning: { core: 0xfff2c8, glow: 0xffd84a, spark: 0xfff4b0 }, // a warm core: never clipped white
   shadow: { core: 0xf2dcff, glow: 0x8f3dff, spark: 0xc49aff },
   physical: { core: 0xfff4e2, glow: 0xffb35a, spark: 0xffd9a0 },
 };
@@ -26,7 +27,9 @@ const FX = {
   sparks: 700, motes: 260, chips: 160, dust: 40, rings: 12, flashes: 10, lights: 3, shots: 6, trail: 12,
   strikeDelay: 0.6,     // s from release to landing (spells.ts SPELL.strikeDelay)
   strikeColumn: 0.38,   // s the column stays
-  wall: [0.16, 1.15, 1.05] as const, wallAhead: 0.5, wallLife: 1.3,
+  wall: [0.24, 1.15, 1.05] as const, // m: thick, wide, tall (rounded)
+  wallAhead: 1.05,      // m in front of the caster at most (halfway to the opponent when closer)
+  wallLife: 1.3,        // s
 };
 
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _c = new THREE.Color();
@@ -42,6 +45,40 @@ function softTexture() {
   grd.addColorStop(1, "rgba(255,255,255,0)");
   g.fillStyle = grd;
   g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+}
+
+/** A soft band at 86% of the radius, fading both ways: ground rings without a hard line. */
+function ringTexture() {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 256;
+  const g = cv.getContext("2d")!;
+  const grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grd.addColorStop(0, "rgba(255,255,255,0)");
+  grd.addColorStop(0.6, "rgba(255,255,255,0)");
+  grd.addColorStop(0.78, "rgba(255,255,255,0.55)");
+  grd.addColorStop(0.86, "rgba(255,255,255,1)");
+  grd.addColorStop(0.93, "rgba(255,255,255,0.45)");
+  grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(cv);
+}
+
+/** A vertical beam: bright down the middle, soft at the sides, fading out toward the top. */
+function beamTexture() {
+  const cv = document.createElement("canvas");
+  cv.width = 64; cv.height = 256;
+  const g = cv.getContext("2d")!;
+  const h = g.createLinearGradient(0, 0, 64, 0);
+  h.addColorStop(0, "rgba(255,255,255,0)"); h.addColorStop(0.5, "rgba(255,255,255,1)"); h.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = h;
+  g.fillRect(0, 0, 64, 256);
+  g.globalCompositeOperation = "destination-in";
+  const v = g.createLinearGradient(0, 0, 0, 256);
+  v.addColorStop(0, "rgba(255,255,255,0)"); v.addColorStop(0.5, "rgba(255,255,255,0.9)"); v.addColorStop(0.92, "rgba(255,255,255,1)"); v.addColorStop(1, "rgba(255,255,255,0.4)");
+  g.fillStyle = v;
+  g.fillRect(0, 0, 64, 256);
   return new THREE.CanvasTexture(cv);
 }
 
@@ -106,7 +143,7 @@ class Chips {
   private p: Float32Array; private v: Float32Array; private r: Float32Array; private w: Float32Array;
   private size: Float32Array; private life: Float32Array; private next = 0;
   constructor(n: number, color: number) {
-    this.mesh = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true }), n);
+    this.mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ color, roughness: 1 }), n); // smooth pebbles, no facets
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     this.p = new Float32Array(n * 3); this.v = new Float32Array(n * 3); this.r = new Float32Array(n * 4); this.w = new Float32Array(n * 3);
@@ -125,7 +162,7 @@ class Chips {
       this.r.set([_q.x, _q.y, _q.z, _q.w], i * 4);
       this.w.set([rand(-14, 14), rand(-14, 14), rand(-14, 14)], i * 3);
       this.size[i] = size * rand(0.5, 1.5);
-      this.life[i] = rand(1.4, 2.2);
+      this.life[i] = rand(0.9, 1.4);
     }
   }
   update(dt: number) {
@@ -162,7 +199,7 @@ interface Ring { m: THREE.Mesh; mat: THREE.MeshBasicMaterial; r0: number; r1: nu
 interface Flash { s: THREE.Sprite; life: number; max: number; size: number }
 interface Glow { l: THREE.PointLight; life: number; max: number; peak: number }
 interface Shot { core: THREE.Sprite; halo: THREE.Sprite; trail: THREE.Sprite[]; hist: THREE.Vector3[]; live: boolean; type: string; owner: Who }
-interface Strike { ring: Ring | null; spot: THREE.Vector3; at: number; type: string; landed: boolean; column: THREE.Group | null; colT: number }
+interface Strike { ring: Ring | null; spot: THREE.Vector3; at: number; type: string; landed: boolean; column: [THREE.Sprite, THREE.Sprite] | null; colT: number }
 interface Wall { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; t: number; base: THREE.Vector3 }
 interface HandOrb { core: THREE.Sprite; halo: THREE.Sprite; on: boolean; type: string; limb: Limb; level: number }
 
@@ -171,6 +208,7 @@ export class Fx {
   private arena: Arena;
   private look: FxLook;
   private tex = softTexture();
+  private beam = beamTexture();
   private sparks: Particles;
   private motes: Particles;
   private chips: Chips;
@@ -211,9 +249,9 @@ export class Fx {
       s.material.color.setHex(look.dust);
       this.puffs.push({ s, v: new THREE.Vector3(), life: 0, max: 1, grow: 1, alpha: 0.5 });
     }
-    const ringGeo = new THREE.RingGeometry(0.86, 1, 72);
+    const ringGeo = new THREE.CircleGeometry(1, 64), ringTex = ringTexture();
     for (let i = 0; i < FX.rings; i++) {
-      const mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+      const mat = new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
       const m = new THREE.Mesh(ringGeo, mat);
       m.visible = false;
       m.renderOrder = 2;
@@ -222,7 +260,7 @@ export class Fx {
     }
     for (let i = 0; i < FX.flashes; i++) this.flashes.push({ s: sprite(THREE.AdditiveBlending), life: 0, max: 1, size: 1 });
     for (let i = 0; i < FX.lights; i++) {
-      const l = new THREE.PointLight(0xffffff, 0, 4, 2);
+      const l = new THREE.PointLight(0xffffff, 0, 3.5, 1.2); // soft falloff: a tint on the fighters, never a hot spot
       l.visible = false;
       this.root.add(l);
       this.glows.push({ l, life: 0, max: 1, peak: 1 });
@@ -236,7 +274,7 @@ export class Fx {
       const ring = this.rings.pop()!; // two rings kept for the channeling auras
       this.auras.push({ ring, level: 0, type: "physical" });
       const mat = new THREE.MeshStandardMaterial({ color: look.stone, roughness: 0.95, emissive: 0x000000, transparent: true });
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...FX.wall).translate(0, 0, FX.wall[2] / 2), mat);
+      const mesh = new THREE.Mesh(new RoundedBoxGeometry(...FX.wall, 4, 0.12).translate(0, 0, FX.wall[2] / 2), mat);
       mesh.visible = false;
       mesh.castShadow = true;
       this.root.add(mesh);
@@ -284,7 +322,7 @@ export class Fx {
 
   private light(p: ArrayLike<number>, color: number, peak: number, life = 0.25) {
     const g = this.glows.reduce((a, b) => (a.life < b.life ? a : b));
-    g.l.position.set(p[0], p[1], Math.max(0.3, p[2]));
+    g.l.position.set(p[0], p[1], Math.max(0.3, p[2]) + 0.45); // lifted off the body so nothing near it blows out
     g.l.color.setHex(color);
     g.life = g.max = life; g.peak = peak;
     g.l.visible = true;
@@ -310,7 +348,8 @@ export class Fx {
         const spec = this.spells(e.name);
         if (!spec) return;
         const o = this.orbs[e.who];
-        o.on = true; o.type = spec.type ?? "physical"; o.limb = spec.hitJoint ?? "r_hand"; o.level = 0;
+        // a server move may name a joint the sim doesn't strike with ("chest"): the sim uses the right hand then
+        o.on = true; o.type = spec.type ?? "physical"; o.limb = LIMBS.includes(spec.hitJoint as Limb) ? spec.hitJoint! : "r_hand"; o.level = 0;
         return;
       }
       case "stance":
@@ -341,7 +380,7 @@ export class Fx {
     this.sparks.burst(e.point, e.dir, Math.round(8 + 12 * k), spark, 2.2, 0.5, 0.4); // spray through
     this.flash(e.point, col ? col.glow : 0xffe8c8, 0.32 + 0.3 * k, 0.16);
     this.flash(e.point, col ? col.core : 0xfff2d0, 0.16 + 0.12 * k, 0.09);
-    if (col) this.light(e.point, col.glow, 3 + 5 * k, 0.3);
+    if (col) this.light(e.point, col.glow, 0.9 + 1.2 * k, 0.3);
     if (e.counter || e.clean) this.ring([e.point[0], e.point[1]], col ? col.glow : this.look.fist, 0.2, 1.4, 0.35, 0.7);
     if (e.how === "strike") this.landStrike(e.defender, e.point);
   }
@@ -350,7 +389,7 @@ export class Fx {
     const col = typeColors(type);
     this.orbs[who].on = false;
     this.flash(point, col.glow, 0.45, 0.2);
-    this.light(point, col.glow, 4, 0.3);
+    this.light(point, col.glow, 1.2, 0.3);
     this.sparks.burst(point, [0, 0, 1], 24, col.spark, 2.4, 1, 0.5, 0.3);
     const foe = (1 - who) as Who;
     if (kind === "strike") {
@@ -366,13 +405,13 @@ export class Fx {
       this.ring([p[0], p[1]], col.glow, 0.3, 1.9, 0.5, 1);
       this.ring([p[0], p[1]], col.spark, 0.2, 1.4, 0.4, 0.6);
       this.puff([p[0], p[1], 0.05], 10, 1.4, 0.7, 0.15);
-      this.chips.spray([p[0], p[1], 0.03], 22, 3);
       this.onSlam(0.55, [p[0], p[1], 0]);
     } else if (kind === "defend") {
       const w = this.walls[who];
       const p = this.pelvis(who), o = this.pelvis(foe);
       const dx = o[0] - p[0], dy = o[1] - p[1], d = Math.hypot(dx, dy) || 1;
-      w.base.set(p[0] + (dx / d) * FX.wallAhead, p[1] + (dy / d) * FX.wallAhead, 0);
+      const ahead = Math.min(FX.wallAhead, Math.max(0.55, d * 0.5)); // between them, never past the opponent
+      w.base.set(p[0] + (dx / d) * ahead, p[1] + (dy / d) * ahead, 0);
       w.mesh.rotation.set(0, 0, Math.atan2(dy, dx));
       const stone = type === "physical";
       w.mat.color.setHex(stone ? this.look.stone : col.glow);
@@ -382,7 +421,6 @@ export class Fx {
       w.mat.depthWrite = stone;
       w.t = 0;
       w.mesh.visible = true;
-      this.chips.spray([w.base.x, w.base.y, 0.03], 18, 2.4, [dx / d, dy / d]);
       this.puff([w.base.x, w.base.y, 0.05], 6, 0.8, 0.6, 0.3);
       this.onSlam(0.35, [w.base.x, w.base.y, 0]);
     }
@@ -399,25 +437,23 @@ export class Fx {
     s.landed = true;
     if (s.ring) s.ring.life = 0;
     const col = typeColors(s.type);
-    // a column of the spell's colour from the sky, a ground ring, sparks, chips and dust
+    // a soft column of the spell's colour from the sky, a ground ring, sparks and dust (stone chips are for bodies hitting the floor)
     if (!s.column) {
-      const g = new THREE.Group();
-      const mat = (c: number, o: number) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-      g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 6, 10, 1, true).rotateX(Math.PI / 2).translate(0, 0, 3), mat(col.core, 1)));
-      g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 6, 18, 1, true).rotateX(Math.PI / 2).translate(0, 0, 3), mat(col.glow, 0.3)));
-      this.root.add(g);
-      s.column = g;
+      const beam = (o: number) => {
+        const b = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.beam, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+        b.center.set(0.5, 0); // stands on the ground
+        this.root.add(b);
+        return b;
+      };
+      s.column = [beam(0.35), beam(0.2)];
     }
-    (s.column.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.color.setHex(col.core);
-    (s.column.children[1] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.color.setHex(col.glow);
-    s.column.position.copy(s.spot);
-    s.column.visible = true;
+    s.column[0].material.color.setHex(col.core);
+    s.column[1].material.color.setHex(col.glow);
+    for (const b of s.column) { b.position.copy(s.spot); b.visible = true; }
     s.colT = FX.strikeColumn;
     this.ring([s.spot.x, s.spot.y], col.glow, 0.2, 1.6, 0.45, 1);
     this.sparks.burst([s.spot.x, s.spot.y, 0.05], [0, 0, 1], 50, col.spark, 4, 0.9, 0.6);
-    this.flash([s.spot.x, s.spot.y, 1.0], col.glow, 1.3, 0.22);
-    this.light([s.spot.x, s.spot.y, 1.2], col.glow, 12, 0.35);
-    this.chips.spray([s.spot.x, s.spot.y, 0.03], 26, 3.4);
+    this.light([s.spot.x, s.spot.y, 1.2], col.glow, 1.5, 0.35); // gentle: the fighter under it must not wash out
     this.puff([s.spot.x, s.spot.y, 0.05], 8, 1.1, 0.6, 0.2);
     this.onSlam(0.6, [s.spot.x, s.spot.y, 0]);
   }
@@ -501,9 +537,10 @@ export class Fx {
       if (s.column && s.colT > 0) {
         s.colT -= dt;
         const a = Math.max(0, s.colT / FX.strikeColumn);
-        s.column.visible = a > 0;
-        s.column.scale.set(0.6 + 0.6 * a, 0.6 + 0.6 * a, 1);
-        s.column.children.forEach((c, j) => ((c as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity = (j ? 0.45 : 1) * a));
+        const w = 0.6 + 0.6 * a;
+        s.column[0].scale.set(0.14 * w, 6, 1); s.column[1].scale.set(0.9 * w, 6, 1);
+        s.column[0].material.opacity = 0.35 * a; s.column[1].material.opacity = 0.2 * a;
+        for (const b of s.column) b.visible = a > 0;
       }
     }
     for (const w of this.walls) {
@@ -563,7 +600,7 @@ export class Fx {
           const p = [xp[w.body * 3], xp[w.body * 3 + 1], 0.04];
           if (s > 0.08) {
             this.puff(p, Math.round(3 + 7 * s), 0.5 + 0.7 * s, 0.45 + 0.4 * s, 0.25);
-            this.chips.spray(p, Math.round(4 + 16 * s), 1.4 + 1.8 * s);
+            this.chips.spray(p, Math.round(3 + 9 * s), 1.4 + 1.8 * s);
             this.onSlam(s, p);
           }
           w.cool = 0.35;
@@ -577,7 +614,7 @@ export class Fx {
     this.sparks.clear(); this.motes.clear(); this.chips.clear();
     for (const q of this.puffs) { q.life = 0; q.s.visible = false; }
     for (const r of this.rings) r.life = 0;
-    for (const s of this.strikes) { s.landed = true; if (s.column) s.column.visible = false; s.colT = 0; }
+    for (const s of this.strikes) { s.landed = true; if (s.column) for (const b of s.column) b.visible = false; s.colT = 0; }
     for (const w of this.walls) { w.t = -1; w.mesh.visible = false; }
     for (const o of this.orbs) { o.on = false; o.level = 0; }
   }

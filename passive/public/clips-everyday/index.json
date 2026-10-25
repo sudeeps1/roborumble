@@ -1,0 +1,107 @@
+{
+ "block": [
+  "block_0.json",
+  "block_1.json"
+ ],
+ "dodge.back": [
+  "dodge_back_0.json",
+  "dodge_back_1.json"
+ ],
+ "dodge.left": [
+  "dodge_left_0.json",
+  "dodge_left_1.json"
+ ],
+ "dodge.right": [
+  "dodge_right_0.json",
+  "dodge_right_1.json"
+ ],
+ "duck": [
+  "duck_0.json",
+  "duck_1.json"
+ ],
+ "getup.knees": [
+  "getup_knees_0.json",
+  "getup_knees_1.json",
+  "getup_knees_2.json",
+  "getup_knees_3.json"
+ ],
+ "getup.stand": [
+  "getup_stand_0.json",
+  "getup_stand_1.json"
+ ],
+ "guard": [
+  "guard_0.json",
+  "guard_1.json"
+ ],
+ "guard.elf": [
+  "guard_elf_0.json",
+  "guard_elf_1.json"
+ ],
+ "guard.knight": [
+  "guard_knight_0.json",
+  "guard_knight_1.json"
+ ],
+ "punch.leftHook": [
+  "punch_leftHook_1.json"
+ ],
+ "punch.leftJab": [
+  "punch_leftJab_1.json"
+ ],
+ "punch.rightHook": [
+  "punch_rightHook_0.json"
+ ],
+ "punch.rightHook.elf": [
+  "punch_rightHook_elf_0.json",
+  "punch_rightHook_elf_1.json"
+ ],
+ "punch.rightJab": [
+  "punch_rightJab_0.json",
+  "punch_rightJab_1.json"
+ ],
+ "punch.rightJab.elf": [
+  "punch_rightJab_elf_0.json",
+  "punch_rightJab_elf_1.json"
+ ],
+ "punch.rightJab.knight": [
+  "punch_rightJab_knight_0.json",
+  "punch_rightJab_knight_1.json"
+ ],
+ "step.back": [
+  "step_back_0.json",
+  "step_back_1.json"
+ ],
+ "step.forward": [
+  "step_forward_0.json",
+  "step_forward_1.json"
+ ],
+ "step.forward.knight": [
+  "step_forward_knight_0.json"
+ ],
+ "step.left": [
+  "step_left_0.json",
+  "step_left_1.json"
+ ],
+ "step.left.elf": [
+  "step_left_elf_0.json",
+  "step_left_elf_1.json"
+ ],
+ "step.left.knight": [
+  "step_left_knight_0.json",
+  "step_left_knight_1.json"
+ ],
+ "step.right": [
+  "step_right_0.json",
+  "step_right_1.json"
+ ],
+ "step.right.elf": [
+  "step_right_elf_0.json",
+  "step_right_elf_1.json"
+ ],
+ "step.right.knight": [
+  "step_right_knight_0.json",
+  "step_right_knight_1.json"
+ ],
+ "jump": [
+  "jump_0.json"
+ ]
+}

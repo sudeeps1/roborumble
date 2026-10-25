@@ -1,0 +1,621 @@
+{
+ "anchors": "anchors.json",
+ "defaults": {
+  "samples": 8,
+  "steps": 100,
+  "cfg": [
+   2.0,
+   2.0
+  ]
+ },
+ "jobs": [
+  {
+   "id": "step_forward.elf.a",
+   "motion": "step.forward.elf",
+   "prompt": "A light nimble person lifts the front foot and steps forward then brings the back foot up",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 30100,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.3,
+      0.0,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.3,
+     0.0
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "character": "elf"
+   }
+  },
+  {
+   "id": "step_left.elf.a",
+   "motion": "step.left.elf",
+   "prompt": "A light nimble person lifts the left foot and steps left then brings the right foot over",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 30200,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.0,
+      0.3,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.0,
+     0.3
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "character": "elf"
+   }
+  },
+  {
+   "id": "step_right.elf.a",
+   "motion": "step.right.elf",
+   "prompt": "A light nimble person lifts the right foot and steps right then brings the left foot over",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 30300,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.0,
+      -0.3,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.0,
+     -0.3
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "character": "elf"
+   }
+  },
+  {
+   "id": "punch_leftJab.elf.a",
+   "motion": "punch.leftJab.elf",
+   "prompt": "A light nimble person throws a snappy straight punch with the left fist then returns",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 30400,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.1,
+     0
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "hit_limb": "l_hand",
+    "key": 0.4,
+    "hit_frame": 12,
+    "character": "elf"
+   }
+  },
+  {
+   "id": "punch_rightJab.elf.a",
+   "motion": "punch.rightJab.elf",
+   "prompt": "A light nimble person throws a snappy straight punch with the right fist then returns",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 30500,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": 0.4,
+     "anchor": "punch.rightJab.hit",
+     "offset": [
+      0.05,
+      -0.017,
+      -0.084
+     ]
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "variant": "mid",
+    "hit_limb": "r_hand",
+    "key": 0.4,
+    "hit_frame": 12,
+    "character": "elf"
+   }
+  },
+  {
+   "id": "punch_leftHook.elf.a",
+   "motion": "punch.leftHook.elf",
+   "prompt": "A light nimble person rotates the torso and swings a fast left hook at head height",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 30600,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": 0.43,
+     "anchor": "punch.leftHook.hit",
+     "offset": [
+      0.081,
+      -0.037,
+      -0.154
+     ]
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "variant": "mid",
+    "hit_limb": "l_hand",
+    "key": 0.43,
+    "hit_frame": 13,
+    "character": "elf"
+   }
+  },
+  {
+   "id": "punch_rightHook.elf.a",
+   "motion": "punch.rightHook.elf",
+   "prompt": "A light nimble person rotates the torso and swings a fast right hook at head height",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 30700,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": 0.43,
+     "anchor": "punch.rightHook.hit",
+     "offset": [
+      0.086,
+      -0.041,
+      -0.121
+     ]
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "variant": "mid",
+    "hit_limb": "r_hand",
+    "key": 0.43,
+    "hit_frame": 13,
+    "character": "elf"
+   }
+  },
+  {
+   "id": "step_forward.knight.a",
+   "motion": "step.forward.knight",
+   "prompt": "A heavy strong person lifts the front foot and steps forward then brings the back foot up",
+   "duration": 1.0,
+   "samples": 8,
+   "seed": 30800,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.3,
+      0.0,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.3,
+     0.0
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "character": "knight"
+   }
+  },
+  {
+   "id": "step_left.knight.a",
+   "motion": "step.left.knight",
+   "prompt": "A heavy strong person lifts the left foot and steps left then brings the right foot over",
+   "duration": 1.0,
+   "samples": 8,
+   "seed": 30900,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.0,
+      0.3,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.0,
+     0.3
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "character": "knight"
+   }
+  },
+  {
+   "id": "step_right.knight.a",
+   "motion": "step.right.knight",
+   "prompt": "A heavy strong person lifts the right foot and steps right then brings the left foot over",
+   "duration": 1.0,
+   "samples": 8,
+   "seed": 31000,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.0,
+      -0.3,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.0,
+     -0.3
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "character": "knight"
+   }
+  },
+  {
+   "id": "punch_leftJab.knight.a",
+   "motion": "punch.leftJab.knight",
+   "prompt": "A heavy strong person throws a powerful straight punch with the left fist then returns",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 31100,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     0.1,
+     0
+    ]
+   ],
+   "meta": {
+    "variant": "kf",
+    "hit_limb": "l_hand",
+    "key": 0.4,
+    "hit_frame": 12,
+    "character": "knight"
+   }
+  },
+  {
+   "id": "punch_rightJab.knight.a",
+   "motion": "punch.rightJab.knight",
+   "prompt": "A heavy strong person throws a powerful straight punch with the right fist then returns",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 31200,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": 0.4,
+     "anchor": "punch.rightJab.hit",
+     "offset": [
+      0.05,
+      -0.017,
+      -0.084
+     ]
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "variant": "mid",
+    "hit_limb": "r_hand",
+    "key": 0.4,
+    "hit_frame": 12,
+    "character": "knight"
+   }
+  },
+  {
+   "id": "punch_leftHook.knight.a",
+   "motion": "punch.leftHook.knight",
+   "prompt": "A heavy strong person rotates the torso and swings a heavy left hook at head height",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 31300,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": 0.43,
+     "anchor": "punch.leftHook.hit",
+     "offset": [
+      0.081,
+      -0.037,
+      -0.154
+     ]
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "variant": "mid",
+    "hit_limb": "l_hand",
+    "key": 0.43,
+    "hit_frame": 13,
+    "character": "knight"
+   }
+  },
+  {
+   "id": "punch_rightHook.knight.a",
+   "motion": "punch.rightHook.knight",
+   "prompt": "A heavy strong person rotates the torso and swings a heavy right hook at head height",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 31400,
+   "cfg": [
+    2.0,
+    2.0
+   ],
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": 0.43,
+     "anchor": "punch.rightHook.hit",
+     "offset": [
+      0.086,
+      -0.041,
+      -0.121
+     ]
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0.1,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "variant": "mid",
+    "hit_limb": "r_hand",
+    "key": 0.43,
+    "hit_frame": 13,
+    "character": "knight"
+   }
+  }
+ ]
+}

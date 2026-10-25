@@ -47,6 +47,7 @@ export interface Impact {
   // set for spells and other server moves (spells.ts): the damage comes from the move's rules
   damage?: number;    // before blocking
   knockdown?: boolean; // the rules say this one knocks down
+  launch?: number;     // N s it throws the defender with when it knocks down (instead of the fighter's knockdown push)
   clean?: boolean;
   how?: string;       // melee, projectile, strike, shockwave
   type?: string;
@@ -243,7 +244,12 @@ export class Combat {
     for (let i = this.flying.length - 1; i >= 0; i--) {
       const pr = this.flying[i];
       pr.age += dt;
-      if (pr.age > SPELL.projectileLife) { this.flying.splice(i, 1); continue; }
+      if (pr.age > SPELL.projectileLife) {
+        // never got there (the target kept moving off): it still ends as a miss, so every cast is answered
+        if (!pr.missed) this.onWhiff(pr.owner, pr.spec.name, "out of range", Math.hypot(pr.aim[0] - pr.pos[0], pr.aim[1] - pr.pos[1]));
+        this.flying.splice(i, 1);
+        continue;
+      }
       if (pr.missed) {
         if ((pr.ttl -= dt) <= 0) { this.flying.splice(i, 1); continue; }
       } else {
@@ -259,7 +265,8 @@ export class Combat {
             this.flying.splice(i, 1);
             continue;
           }
-          if (d.standing()) this.onWhiff(pr.owner, pr.spec.name, "dodged", Math.hypot(c[0] - pr.aim[0], c[1] - pr.aim[1]));
+          // slipped it (or ducked/jumped it), or it arrived over a body that was already down
+          this.onWhiff(pr.owner, pr.spec.name, d.standing() ? "dodged" : "out of range", Math.hypot(c[0] - pr.aim[0], c[1] - pr.aim[1]));
           pr.missed = true; // sails on past and fades
           pr.ttl = 0.4;
         } else if (dist > 1e-6) {
@@ -298,6 +305,7 @@ export class Combat {
       attacker: a, name: s.name, zone, body, point, dir, speed: 4,
       impulse: 2.2 * damage, poise: damage / 30, counter: d.isCommitted(),
       damage, knockdown: damage >= SPELL.knockdownDamage || (clean && s.power === 3), clean, how, type: s.type, effect: s.effect,
+      launch: how === "strike" ? undefined : SPELL.launch * damage, // a spell that knocks down throws its target (one from above folds it)
     };
   }
 

@@ -180,6 +180,90 @@ export function waistToHips(frames: Frame[], k = 1, extra = FORWARD_LEAN): Frame
   return frames;
 }
 
+/** How deepenSquat bends the legs (see there). */
+export interface Squat { gain: number; below: number }
+
+/**
+ * SONIC stops a deep crouch short (Earth Wall's pelvis bottomed 7-8 cm above the clip's): where a
+ * frame's pelvis is lower than `below` (m), the knees bend gain * (below - height) rad more and the
+ * hips and ankles take half each back, so the feet stay flat and the torso keeps its lean. Moves
+ * near standing height are untouched. Joints stay in [lo, hi].
+ */
+export function deepenSquat(frames: Frame[], k: Squat, lo: ArrayLike<number>, hi: ArrayLike<number>): Frame[] {
+  const KNEE = [3, 9], HIP = [0, 6], ANKLE = [4, 10];
+  for (const f of frames) {
+    const x = k.gain * Math.max(0, k.below - f[2]);
+    if (!(x > 0)) continue;
+    for (let s = 0; s < 2; s++) {
+      for (const [j, d] of [[KNEE[s], x], [HIP[s], -x / 2], [ANKLE[s], -x / 2]]) f[7 + j] = Math.min(hi[j], Math.max(lo[j], f[7 + j] + d));
+    }
+  }
+  return frames;
+}
+
+/** How snapArms exaggerates a move's fast arm motion (see there). */
+export interface Snap { s: number; thr: number; sigma: number; gain: number; wrist: number }
+
+/**
+ * SONIC smooths fast arm moves: a spell's thrust comes out at about half the clip's hand speed.
+ * This exaggerates the arms (shoulders and elbows, wrists by `wrist`) away from the move's first
+ * pose by up to (s - 1) where the clip moves them fast (above `thr` of its top arm speed, weight
+ * smoothed over `sigma` frames and scaled by `gain`), so the robot's strike comes out closer to the
+ * clip's speed. Slow parts and the rest of the body are untouched; joints stay in [lo, hi].
+ */
+export function snapArms(frames: Frame[], k: Snap, lo: ArrayLike<number>, hi: ArrayLike<number>): Frame[] {
+  const n = frames.length;
+  if (!(k.s > 1) || n < 3) return frames;
+  const w = armFastWeights(frames, k);
+  if (!w) return frames;
+  const orig = frames.map((f) => Float64Array.from(f));
+  ARM_JOINTS.forEach((js, side) => {
+    for (let i = 0; i < n; i++) {
+      if (!w[side][i]) continue;
+      js.forEach((j, m) => {
+        const e = (k.s - 1) * w[side][i] * (m < 4 ? 1 : k.wrist);
+        const q = orig[i][7 + j] + e * (orig[i][7 + j] - orig[0][7 + j]);
+        frames[i][7 + j] = Math.min(hi[j], Math.max(lo[j], q));
+      });
+    }
+  });
+  return frames;
+}
+
+/** Arm joints, left then right (MuJoCo order): shoulder pitch, roll, yaw, elbow, wrist x3. */
+export const ARM_JOINTS = [[15, 16, 17, 18, 19, 20, 21], [22, 23, 24, 25, 26, 27, 28]];
+
+/**
+ * Per arm (left, right), per frame: 0..1, how fast the move swings that arm there (shoulders and
+ * elbow speed above k.thr of the move's top arm speed, smoothed over k.sigma frames, times k.gain).
+ * Null if the arms never move. Shared by snapArms and the strike feed-forward (TUNE.spellFF).
+ */
+export function armFastWeights(frames: Frame[], k: Pick<Snap, "thr" | "sigma" | "gain">): number[][] | null {
+  const n = frames.length;
+  if (n < 3) return null;
+  const speed = (js: number[]) => frames.map((_, i) => {
+    const a = frames[Math.min(i, n - 2)], b = frames[Math.min(i + 1, n - 1)];
+    let s = 0;
+    for (const j of js.slice(0, 4)) { const d = (b[7 + j] - a[7 + j]) * REF_HZ; s += d * d; }
+    return Math.sqrt(s);
+  });
+  const v = ARM_JOINTS.map(speed), vmax = Math.max(...v[0], ...v[1]), thr = k.thr * vmax;
+  if (!(vmax > thr)) return null;
+  return v.map((vs) => smooth(vs.map((x) => Math.max(0, Math.min(1, (x - thr) / (vmax - thr)))), k.sigma).map((x) => Math.min(1, x * k.gain)));
+}
+
+/** Gaussian smoothing (sigma in samples), renormalized at the ends. */
+function smooth(x: number[], sigma: number): number[] {
+  if (!(sigma > 0)) return x.slice();
+  const R = Math.ceil(sigma * 3), ker: number[] = [];
+  for (let d = -R; d <= R; d++) ker.push(Math.exp(-(d * d) / (2 * sigma * sigma)));
+  return x.map((_, i) => {
+    let s = 0, w = 0;
+    for (let d = -R; d <= R; d++) { const j = i + d; if (j < 0 || j >= x.length) continue; s += x[j] * ker[d + R]; w += ker[d + R]; }
+    return s / w;
+  });
+}
+
 /** A frame that holds a pose: root at pos/quat, joints given (MuJoCo order). */
 export function poseFrame(pos: ArrayLike<number>, quat: ArrayLike<number>, joints: ArrayLike<number>): Frame {
   const f = new Float64Array(36);

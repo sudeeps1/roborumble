@@ -43,6 +43,8 @@ export const SPELL = {
   strikeRadius: 0.5,     // m from where the defender stood when the move started
   shockwaveRadius: 1.5,  // m pelvis to pelvis
   knockdownDamage: 16,   // a hit this big knocks down (or a clean power-3 hit)
+  launch: 4.5,           // N s per point of damage a knockdown throws its target with (back and up: about 1.4 m for 20)
+  launchLift: 0.35,      // upward part of a launch's push (a strike from above folds its target instead)
   blockMult: 0.3,
   cleanMult: 1.25,
 };
