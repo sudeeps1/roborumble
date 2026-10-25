@@ -8,7 +8,7 @@ the knight in a dusk meadow, with a live camera, spell effects, the HUD and best
 ```
 npm start        # planner + dev server, as for the rig
 ```
-Open http://localhost:5180/screen.html (the rig stays at `/`). Without the planner the fighters hold a
+Open http://localhost:5180: the fight screen is the default page (the rig is at `/rig.html`; `/screen.html` redirects here). Without the planner the fighters hold a
 standing guard (see README).
 
 URL options:
@@ -32,7 +32,7 @@ directly.
  phone 2 ─┘                                                      └─< state 10/s, event <────────── (physics, view)
 ```
 
-- **Screen:** open `screen.html?room` (a fresh code) or `?room=ABCD`. It joins the room as the game. The
+- **Screen:** open `/?room` (a fresh code) or `/?room=ABCD`. It joins the room as the game. The
   console prints the phones' join link, `<server>/phone/?room=ABCD`, which is also in `__screen.room`.
   The fighters stand in the ring until both seats are taken. Then a best-of-3 match starts, and when it
   ends, a rematch follows while both phones are still there.
@@ -78,7 +78,7 @@ What it sends:
 - `node scripts/phone-bot.ts --room ABCD` is a pretend phone. It takes a seat, shouts library moves every
   ~2.5 s through `POST /match` (the server treats it exactly like a voice shout, minus speech to text),
   sometimes defends when the other side casts, and logs what comes back.
-- `node scripts/full-game.ts --screen http://localhost:5180/screen.html` runs a whole match through all
+- `node scripts/full-game.ts --screen http://localhost:5180/` runs a whole match through all
   three devices: the real screen in headless Chrome, two bots, the real game server. It checks that the
   match ends with a winner, every round that starts ends, shouts get played or fizzle with a reason,
   live wildcards channel and then play, state keeps coming, taps become defenses, and the page logs no
@@ -119,7 +119,7 @@ work with no art per spell.
 ## How it's built
 | File | What |
 | --- | --- |
-| `screen.html`, `src/screen/main.ts` | boot (same as the rig), rounds, hit-stop and slow motion, drivers, hooks |
+| `index.html`, `src/screen/main.ts` | boot (same as the rig), rounds, hit-stop and slow motion, drivers, hooks |
 | `src/screen/stage.ts` | renderer, characters over the robots, the light rig that follows the fight, bloom |
 | `src/screen/camera.ts` | the camera director (below) |
 | `src/screen/fx.ts` | spell effects by type x kind, hit sparks, flashes, dust and stone chips on floor slams |

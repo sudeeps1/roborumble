@@ -1,17 +1,4 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fight screen</title>
-    <!-- COEP require-corp (vite.config.ts): cross-origin fonts need crossorigin. Without the network the HUD falls back to system faces. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
-    <link rel="stylesheet" crossorigin href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Cinzel+Decorative:wght@700;900&family=Fredoka:wght@500;600;700&display=block" />
-    <link rel="stylesheet" href="/src/screen/hud.css" />
-  </head>
-  <body>
-    <div id="boot">Loading MuJoCo and SONIC…</div>
-    <div id="hud" hidden></div>
-    <script type="module" src="/src/screen/main.ts"></script>
-  </body>
-</html>
+<!-- The fight screen is the default page now (index.html); old links keep working. -->
+<meta charset="UTF-8"><title>Fight screen</title>
+<script>location.replace("./" + location.search + location.hash);</script>

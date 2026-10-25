@@ -13,7 +13,7 @@ knees. A KO stays down. A sparring AI can drive either fighter.
 npm install
 npm run setup            # once: G1 model + meshes (18 MB), SONIC controller (91 MB)
 npm run setup:planner    # once: SONIC kinematic planner (774 MB)
-npm start                # the planner service, then the rig: open http://localhost:5180
+npm start                # the planner, then the dev server: the game at http://localhost:5180, this rig at /rig.html
 ```
 
 `npm start` starts the planner (port 8787, or `PLANNER_PORT`), waits until it answers, then starts

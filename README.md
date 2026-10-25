@@ -29,9 +29,9 @@ phone/  (controller website)  --HTTPS + WebSocket-->  server/  (FastAPI on an RT
   hold to talk, Forge camera,                           Kimodo-G1 motion, job queue, quality checks,
   spell deck, dodge/block taps                          Muse speech to text, move matching, Claude
                                                         live wildcards, Forge, library, rooms, narrator
-client/   game screen: three.js arena, effects,  <--WebSocket rooms--+
-          HUD, narrator voice                                        |
-passive/  MuJoCo physics sim and fight screen         agent/  Claude Library Builder: writes moves,
+passive/  THE GAME SCREEN: MuJoCo physics, arena,   <--WebSocket rooms--+
+          effects, HUD (and the simulator rig)                       |
+client/   earlier game screen, stub sim (testing)     agent/  Claude Library Builder: writes moves,
 characters/  elf skin drawn over the G1                       validates and dedupes them, POSTs them
                                                               to the server for Kimodo
 ```
@@ -58,8 +58,8 @@ characters/  elf skin drawn over the G1                       validates and dedu
 | `server/` | Game server: Kimodo, jobs, library, matching, voice, Forge, rooms | Vaibhav |
 | `phone/` | Phone controller website, served by the server at `/phone` | Vaibhav |
 | `agent/` | Overnight Claude Library Builder | Jerry |
-| `client/` | Game screen: arena, effects, HUD, narrator | Jerry |
-| `passive/` | MuJoCo physics sim and fight screen | Sudeep |
+| `passive/` | **The game:** the fight screen (MuJoCo physics, night forest arena, HUD, rounds, phones via the server's rooms) at `/`, and the simulator rig at `/rig.html` | Sudeep |
+| `client/` | The earlier game screen with a stub sim, kept for testing | Jerry |
 | `characters/` | Elf skin drawn over the G1 | Sudeep |
 | `contract/` | HTTP API and WebSocket messages between the parts | everyone |
 | `docs/` | Kimodo notes, GPU setup, spell videos | |
@@ -71,7 +71,8 @@ Each folder runs with one command; its README has the details.
 ```bash
 ./server/run.sh                          # game server on :8000 with the mock engine (any laptop)
 ENGINE=kimodo ./server/run.sh            # real Kimodo on a GPU box (server/setup_pod.sh installs it)
-cd client && npm install && npm run dev  # game screen; phones join at <server>:8000/phone/?room=CODE
-cd passive && npm start                  # physics sim and fight screen (one-time setup: passive/README.md)
+cd passive && npm start                  # THE GAME: open http://localhost:5180/?room (rig: /rig.html; setup: passive/README.md)
+                                         # phones join at <server>/phone/?room=CODE
+cd client && npm install && npm run dev  # the earlier game screen with a stub sim (testing only)
 cd agent && ./run.sh --batches 1         # Library Builder (needs ANTHROPIC_API_KEY)
 ```

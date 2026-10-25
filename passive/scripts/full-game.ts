@@ -1,4 +1,4 @@
-// A full game through all three devices, with pretend phones. The real screen (screen.html in headless
+// A full game through all three devices, with pretend phones. The real screen (the game page in headless
 // Chrome: the real physics and rendering) opens a room on the game server, two phone bots
 // (scripts/phone-bot.ts) take the seats and shout moves until the match ends. Then it checks:
 //   - the match ran to a winner, and every round that started also ended
@@ -7,7 +7,7 @@
 //   - state reached the phones the whole time (no gap over 1 s), and the page logged no errors
 // It prints a report and exits 1 if a check fails. Wildcard moves the bots invented are retired from the
 // library afterwards, so tests don't fill it up.
-//   node scripts/full-game.ts [--screen http://localhost:5180/screen.html] [--server URL] [--wild 1] [--shots DIR] [--fill] [--params fx=game] [--chaos]
+//   node scripts/full-game.ts [--screen http://localhost:5180/] [--server URL] [--wild 1] [--shots DIR] [--fill] [--params fx=game] [--chaos]
 // --chaos: 10 s into round 1 the screen loses its connection to the server; 8 s into round 2 a phone
 // drops off for 3 s. The match must carry on, and the phone must get its seat back.
 // --video match.mp4 records the screen (HUD and all) from the lobby to the victory, in real time, 1920x1080
@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { DEFAULT_SERVER, PhoneBot, libraryNames } from "./phone-bot.ts";
 
 const arg = (k: string, d?: string) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
-const SCREEN = arg("screen", "http://localhost:5180/screen.html")!;
+const SCREEN = arg("screen", "http://localhost:5180/")!;
 const SERVER = arg("server", DEFAULT_SERVER)!.replace(/\/+$/, "");
 const WILD = Number(arg("wild", "1"));
 const SHOTS = arg("shots");
