@@ -61,7 +61,12 @@ for (const f of ["model_encoder.onnx", "model_decoder.onnx", "observation_config
 
 // 3. SONIC kinematic planner (774 MB, runs in planner/server.ts, not the browser)
 if (process.argv.includes("--planner")) {
-  console.log("planner: downloading planner_sonic.onnx (774 MB)...");
-  if (await download(`${HF}/planner_sonic.onnx`, join(ROOT, "models", "planner_sonic.onnx"), 1e8)) console.log("planner: done");
+  const dest = join(ROOT, "models", "planner_sonic.onnx");
+  if (await exists(dest)) console.log("planner: already downloaded");
+  else {
+    console.log("planner: downloading planner_sonic.onnx (774 MB)...");
+    await download(`${HF}/planner_sonic.onnx`, dest, 1e8);
+    console.log("planner: done");
+  }
 }
 console.log("assets ready");
