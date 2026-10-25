@@ -31,8 +31,8 @@ and get-ups fall back to the assisted lift. `?ep=webgpu` runs SONIC on the GPU i
   an AI on, a new bout starts 6 s after a KO.
 - **Hitboxes** shows what the combat code sees. Head is red, torso orange, legs yellow,
   forearm guards blue. Striking limbs are white, and turn magenta while a strike can land.
-- **Look** switches between human boxers over the robots (the default), the G1 robots, or both
-  with the robot see-through.
+- **Look** switches between the elves (the default, see below), human boxers over the robots,
+  the G1 robots, or the humans over a see-through robot.
 - Strength scales every hit. Slow-mo runs at 0.25x.
 
 The right side shows HP, balance (poise) and what each fighter is doing, with an event log
@@ -84,6 +84,15 @@ Keys:
 
   Add `--fight` to just watch the two AIs fight with a well-behaved planner.
 - `npm run headless -- 300`: one robot standing, shoved at 4 s and 7 s with 300 N.
+
+## Elf look (the default)
+The rig draws the elf from `../characters` over each robot: a skinned character rigged
+bone-for-bone to the G1, so it follows the simulated bodies exactly (MuJoCo body poses in, no
+retargeting). The second fighter gets the other team's colours, a hit flashes the elf that took
+it, and its hair and belt flaps are spring-simulated. `vite.config.ts` reaches
+`../characters/src` and `../characters/public/elf.glb` through the `@elf` aliases, with one shared
+three.js. If the elf can't load, the rig falls back to the human look. `?look=human`,
+`?look=robot` or `?look=both` pick another look.
 
 ## Human model (optional)
 The Human look uses a rigged human if `public/human/human_rigged.glb` exists. Without it, the

@@ -1,5 +1,7 @@
 // three.js view of the MuJoCo world. Works in MuJoCo coordinates (Z up, meters).
 // Draws the robots' visual meshes (geom group 1) straight from the compiled model.
+import { CharacterView } from "@elf/character.ts";
+import { makeStudioEnvironment } from "@elf/studio.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { LIMBS, type Limb, type Volume } from "../core/body.ts";
@@ -10,7 +12,7 @@ import type { RobotHandle, World } from "../core/world.ts";
 import { Human, type HumanLook } from "./human.ts";
 import { RiggedHuman } from "./humanRig.ts";
 
-export type Look = "human" | "robot" | "both";
+export type Look = "elf" | "human" | "robot" | "both";
 
 interface Flash { mesh: THREE.Mesh; arrow: THREE.ArrowHelper; age: number }
 interface Box { fighter: Fighter; vol?: Volume; limb?: Limb; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }
@@ -28,6 +30,11 @@ export class View {
   private world: World;
   private humans: { group: THREE.Object3D; sync(): void }[] = [];
   private robotMats: THREE.MeshStandardMaterial[] = [];
+  /** Elf skins over the robots (../characters), once loadElves() has run. */
+  private elves: CharacterView[] = [];
+  private elfBodies: Map<string, { pos: ArrayLike<number>; quat: ArrayLike<number> }>[] = [];
+  private studio: THREE.Texture | null = null;
+  private look: Look = "human";
   private boxes: Box[] = [];
   private hitboxes: { combat: Combat; time: () => number } | null = null;
   private va = [0, 0, 0]; private vb = [0, 0, 0];
@@ -120,10 +127,50 @@ export class View {
     }
   }
 
-  /** Human boxers, the G1 robots, or the humans over a see-through robot. */
+  /**
+   * Loads the elf skin (../characters/public/elf.glb, rigged bone-for-bone to the G1), one per
+   * robot; the second gets the other team's colours. False if it can't be loaded.
+   */
+  async loadElves(url: string): Promise<boolean> {
+    try {
+      this.elves = await Promise.all(this.world.robots.map((_, i) => CharacterView.load(url, { hue: i ? -2.45 : 0 })));
+    } catch (e) {
+      console.warn("elf skin not loaded:", e);
+      return false;
+    }
+    for (const e of this.elves) {
+      for (const w of e.warnings) console.warn("elf:", w);
+      e.root.visible = this.look === "elf";
+      this.scene.add(e.root);
+    }
+    this.elfBodies = this.world.robots.map(() => new Map());
+    this.studio = makeStudioEnvironment(this.renderer);
+    return true;
+  }
+
+  get hasElves() { return this.elves.length > 0; }
+
+  /** The rim-lit flash on fighter i's elf (on a hit). */
+  elfFlash(i: number) { this.elves[i]?.hitFlash(); }
+
+  /** Fighter i was teleported (spawn, reset): its hair and flaps start over from the new pose. */
+  elfSpawned(i: number) { this.elves[i]?.resetSprings(); }
+
+  /** Elves, human boxers, the G1 robots, or the humans over a see-through robot. */
   setLook(look: Look) {
-    for (const { obj } of this.geoms) obj.visible = look !== "human";
-    for (const h of this.humans) h.group.visible = look !== "robot";
+    if (look === "elf" && !this.elves.length) look = "human";
+    this.look = look;
+    for (const e of this.elves) e.root.visible = look === "elf";
+    // the elf's materials are made for its studio light: filmic tone mapping and a soft environment
+    // (authored Y-up; this scene is Z-up, so it's turned a quarter turn about X)
+    const elf = look === "elf";
+    this.renderer.toneMapping = elf ? THREE.AgXToneMapping : THREE.NoToneMapping;
+    this.renderer.toneMappingExposure = elf ? 1.15 : 1;
+    this.scene.environment = elf ? this.studio : null;
+    this.scene.environmentIntensity = 0.5;
+    this.scene.environmentRotation.set(Math.PI / 2, 0, 0);
+    for (const { obj } of this.geoms) obj.visible = look === "robot" || look === "both";
+    for (const h of this.humans) h.group.visible = look === "human" || look === "both";
     for (const m of this.robotMats) {
       m.transparent = look === "both";
       m.opacity = look === "both" ? 0.22 : 1;
@@ -200,7 +247,19 @@ export class View {
     this.flashes.push({ mesh, arrow, age: 0 });
   }
 
+  /** Drives each elf from its robot's MuJoCo body poses. */
+  private syncElves(dt: number) {
+    if (!this.elves.length || this.look !== "elf") return;
+    const d = this.world.data, xp = d.xpos, xq = d.xquat;
+    this.world.robots.forEach((r, i) => {
+      const m = this.elfBodies[i];
+      for (const [name, b] of r.bodies) m.set(name, { pos: xp.subarray(3 * b, 3 * b + 3), quat: xq.subarray(4 * b, 4 * b + 4) });
+      this.elves[i].update(m, dt);
+    });
+  }
+
   render(dt: number, focus?: ArrayLike<number>) {
+    this.syncElves(dt);
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
       f.age += dt;

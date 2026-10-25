@@ -13,6 +13,7 @@ import { HttpPlanner } from "../core/planner.ts";
 import { SonicPolicy } from "../core/sonic.ts";
 import { STYLES, Sparrer } from "../core/spar.ts";
 import { World } from "../core/world.ts";
+import elfUrl from "@elf-assets/elf.glb?url";
 import { loadHumanModel } from "./humanRig.ts";
 import { type Look, View } from "./render.ts";
 
@@ -59,7 +60,9 @@ const view = new View(document.body, world, [0xf0a63c, 0x6c8cff], [
   { skin: 0xd8a07c, shorts: 0xf0a63c, gloves: 0xc1272d, hair: 0x2a1c12 },
   { skin: 0x8a5a3c, shorts: 0x3d5afe, gloves: 0x1f4fd1, hair: 0x101010 },
 ], humanModel);
-const startLook = (params.get("look") as Look) ?? "human";
+say("Loading the elf…");
+const elves = await view.loadElves(elfUrl); // ../characters: the elf skin, rigged to the G1
+const startLook = (params.get("look") as Look) ?? (elves ? "elf" : "human");
 view.setLook(startLook);
 boot.remove();
 
@@ -83,7 +86,9 @@ function describe(e: ArenaEvent): string | null {
   }
 }
 arena.on((e) => {
+  if (e.type === "spawn") view.elfSpawned(e.who);
   if (e.type === "hit") {
+    view.elfFlash(e.defender);
     const k = Math.min(1, e.impulse / 40);
     view.flash(e.point, [e.dir[0] * k, e.dir[1] * k, e.dir[2] * k], e.blocked ? 0x4dd2ff : e.attacker === null ? 0xff5a3c : 0xffd24a);
   }
@@ -155,7 +160,7 @@ const input = slider.querySelector("input")!, out = slider.querySelector("span")
 input.oninput = () => { strength = Number(input.value); out.textContent = `${strength.toFixed(1)}x`; };
 panel.append(slider);
 
-const looks: Look[] = ["human", "robot", "both"];
+const looks: Look[] = elves ? ["elf", "human", "robot", "both"] : ["human", "robot", "both"];
 const lookButtons = looks.map((l) => button(l[0].toUpperCase() + l.slice(1), () => setLook(l), l === startLook ? "on" : ""));
 function setLook(l: Look) { view.setLook(l); lookButtons.forEach((b, i) => b.classList.toggle("on", looks[i] === l)); }
 group("Look", ...lookButtons);
