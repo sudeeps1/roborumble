@@ -4,7 +4,8 @@
   --t-physical: #ff7aa2; --t-fire: #ff8a2a; --t-ice: #8fe3ff; --t-lightning: #fff07a; --t-shadow: #a98bff;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; min-height: 100%; background: var(--night); color: var(--parch); }
+html { background: var(--night); }
+html, body { margin: 0; min-height: 100%; color: var(--parch); }
 body { font: 17px/1.4 "EB Garamond", Georgia, serif; padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); overflow-x: hidden; }
 .sky { position: fixed; inset: 0; z-index: -1;
   background: radial-gradient(ellipse at 70% -10%, #3b3f8a 0%, transparent 55%),
