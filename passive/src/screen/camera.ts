@@ -95,6 +95,13 @@ export class Director {
     if (shot === "intro") this.from = { az: CAMERA.homeAzimuth + 0.9, dist: 8.5, height: 3.4, centre: new THREE.Vector3(0, 0, 0), lookZ: 0.8, fov: CAMERA.fov + 6 };
   }
 
+  /** Keeps a scripted shot on its fighters as they move: the fallen one (ko), the winner (victory). */
+  follow(at: ArrayLike<number>, other: ArrayLike<number>) {
+    if (!this.subject) return;
+    this.subject.at.lerp(this.v.set(at[0], at[1], at[2]), 0.12);
+    this.subject.other.set(other[0], other[1], other[2]);
+  }
+
   private pose(): Pose { return { az: this.az, dist: this.dist, height: this.camera.position.z, centre: this.centre.clone(), lookZ: this.lookZ, fov: this.camera.fov }; }
 
   /** dt: real seconds (the camera keeps moving through hit-stop and slow motion). */
@@ -162,9 +169,11 @@ export class Director {
       const sgn = right >= 0 ? -1 : 1;
       return { az: wrap(az0 + sgn * (0.6 + since * 0.05)), dist: 3.6, height: 0.7, centre: s.at.clone().setZ(0), lookZ: 0.6, fov: 34 }; // the winner's head clears the HUD
     }
-    // victory: in front of the winner, slightly low (heroic), slowly pushing in
+    // victory: in front of the winner, slightly low (heroic), slowly pushing in; aimed where the body is
+    // (a winner still getting up off the floor, after a round that ran out of time, is low)
     const facing = toOther; // the winner faces the loser
-    return { az: wrap(facing + 0.55), dist: Math.max(2.1, 2.8 - since * 0.08), height: 1.0, centre: s.at.clone().setZ(0), lookZ: 1.22, fov: 30 };
+    const lookZ = Math.min(1.22, Math.max(0.45, s.at.z + 0.45));
+    return { az: wrap(facing + 0.55), dist: Math.max(2.1, 2.8 - since * 0.08), height: 0.55 + 0.38 * lookZ, centre: s.at.clone().setZ(0), lookZ, fov: 30 };
   }
 
   private blend(a: Pose, b: Pose, k: number, arc = 1): Pose {

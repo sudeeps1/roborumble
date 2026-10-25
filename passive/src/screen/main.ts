@@ -119,6 +119,8 @@ let phase: Phase = online ? "lobby" : "intro", phaseT = 0, clock = RULES.roundSe
 const wins: [number, number] = [0, 0];
 let winner: Who | null = null;
 let fightShown = false;
+/** Who a scripted shot (ko, victory) is on, and the other one: the camera follows them live. */
+let shotOn: [Who, Who] | null = null;
 
 function startRound() {
   for (const step of DEMO) step.done = false;
@@ -127,6 +129,7 @@ function startRound() {
   phase = "intro"; phaseT = 0; clock = RULES.roundSeconds; winner = null; fightShown = false;
   brainsLive = false; syncBrains();
   director.cut("intro");
+  shotOn = null;
   hud.wins(wins);
   hud.show(`Round ${round}`, round === 3 ? "Final round" : wins[0] + wins[1] === 0 ? `${ROSTER[0].name} vs ${ROSTER[1].name}` : "", 1.7);
   tell({ kind: "round_start", round });
@@ -154,6 +157,7 @@ function endRound(w: Who | null, how: "ko" | "time") {
     flash(0.9);
     director.shake(0.9);
     director.cut("ko", { at: world.rootPos(loser.robot), other: world.rootPos(arena.fighters[w].robot) });
+    shotOn = [(1 - w) as Who, w];
     hud.show("K.O.", "", 2.4, "ko");
   } else hud.show("Time!", w === null ? "Draw" : `${ROSTER[w].name} wins the round`, 2.4);
 }
@@ -181,6 +185,7 @@ function flow(dtSim: number, dtReal: number) {
         phase = "over"; phaseT = 0;
         const w = arena.fighters[winner];
         director.cut("victory", { at: world.rootPos(w.robot), other: world.rootPos(w.opponent.robot) });
+        shotOn = [winner, (1 - winner) as Who];
         hud.show(`${ROSTER[winner].name} wins`, ROSTER[winner].title, RULES.victoryS - 0.5, "victory");
         tell({ kind: "match_end", winner: (winner + 1) as 1 | 2 });
       } else { round++; startRound(); }
@@ -486,6 +491,7 @@ function frame(now: number) {
   fx.update(dt);
   gameFx?.update(real, stage.camera);
   set.update(now / 1000, dt);
+  if (shotOn) director.follow(world.rootPos(arena.fighters[shotOn[0]].robot), world.rootPos(arena.fighters[shotOn[1]].robot));
   director.update(real, { pelvis: [pa, pb], down: [downish(a), downish(b)], extras: arena.projectiles().map((p) => p.pos) });
   arena.fighters.forEach((f, i) => {
     hud.hp(i as Who, arena.hp[i], arena.maxHp);

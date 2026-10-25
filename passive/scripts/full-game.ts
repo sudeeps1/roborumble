@@ -10,7 +10,9 @@
 //   node scripts/full-game.ts [--screen http://localhost:5180/screen.html] [--server URL] [--wild 1] [--shots DIR] [--fill] [--params fx=game] [--chaos]
 // --chaos: 10 s into round 1 the screen loses its connection to the server; 8 s into round 2 a phone
 // drops off for 3 s. The match must carry on, and the phone must get its seat back.
-import { spawn } from "node:child_process";
+// --video match.mp4 records the screen (HUD and all) from the lobby to the victory, in real time, 1920x1080
+// unless --size says otherwise; --every 3.5 makes the bots shout at a more human pace.
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +28,9 @@ const EXTRA = arg("params", ""); // more screen URL options, e.g. fx=game
 const CHAOS = process.argv.includes("--chaos");
 let screenDropped = false;
 const TIMEOUT = Number(arg("timeout", "540")) * 1000;
+const VIDEO = arg("video");
+const [W, H] = arg("size", VIDEO ? "1920x1080" : "1280x720")!.split("x").map(Number);
+const EVERY = Number(arg("every", "2.4"));
 const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 // none of these match the library (checked with a dry-run POST /match), so each one is a live wildcard
 const WILD_PHRASES = ["grandmas casserole meteor", "banana peel tsunami", "invisible accordion ambush"];
@@ -38,7 +43,7 @@ const code = `T${Array.from({ length: 4 }, () => "ABCDEFGHJKMNPQRSTUVWXYZ"[Math.
 // ---------------------------------------------------------------- the screen, in headless Chrome
 const port = 9700 + (process.pid % 200);
 const profile = mkdtempSync(join(tmpdir(), "fg-"));
-const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--window-size=1280,720",
+const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, `--window-size=${W},${H}`,
   "--hide-scrollbars", "--no-first-run", "--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist", "--autoplay-policy=no-user-gesture-required", "about:blank"], { stdio: "ignore" });
 const cleanup = () => { try { chrome.kill("SIGKILL"); } catch { /* gone */ } try { rmSync(profile, { recursive: true, force: true }); } catch { /* busy */ } };
 process.on("exit", cleanup);
@@ -60,6 +65,7 @@ async function openScreen(url: string) {
   ws.onmessage = (m) => {
     const msg = JSON.parse(String(m.data));
     if (msg.id && waiting.has(msg.id)) { waiting.get(msg.id)!(msg); waiting.delete(msg.id); }
+    if (msg.method === "Page.screencastFrame") onFrame(msg.params);
     if (msg.method === "Runtime.exceptionThrown") pageErrors.push(msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text);
     if (msg.method === "Runtime.consoleAPICalled") {
       const text = msg.params.args.map((a: any) => a.value ?? a.description).join(" ");
@@ -70,11 +76,47 @@ async function openScreen(url: string) {
   const send = (method: string, params = {}) => new Promise<any>((r) => { const i = ++id; waiting.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   await send("Runtime.enable");
   await send("Page.enable");
-  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+  await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
   await send("Page.navigate", { url });
   page = { send };
 }
 const evaluate = async (expr: string) => (await page!.send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
+// ---------------------------------------------------------------- the video: screencast frames, then ffmpeg
+const frames: { file: string; t: number }[] = [];
+let frameDir = "";
+let recording = false;
+function onFrame(f: { data: string; sessionId: number; metadata: { timestamp: number } }) {
+  void page!.send("Page.screencastFrameAck", { sessionId: f.sessionId });
+  if (!recording) return;
+  const file = join(frameDir, `f${String(frames.length).padStart(6, "0")}.jpg`);
+  writeFileSync(file, Buffer.from(f.data, "base64"));
+  frames.push({ file, t: f.metadata.timestamp });
+}
+async function startVideo() {
+  if (!VIDEO || recording) return;
+  frameDir = mkdtempSync(join(tmpdir(), "fgv-"));
+  recording = true;
+  await page!.send("Page.startScreencast", { format: "jpeg", quality: 82, maxWidth: W, maxHeight: H, everyNthFrame: 1 });
+  log(`recording ${W}x${H}`);
+}
+/** Every frame for as long as it was on screen, then a steady 30 fps H.264. */
+async function stopVideo() {
+  if (!recording) return;
+  recording = false;
+  await page!.send("Page.stopScreencast");
+  if (frames.length < 2) { log("no video frames"); return; }
+  const list = join(frameDir, "frames.txt");
+  const lines = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? f.t + 1 / 30) - f.t).toFixed(4)}`);
+  lines.push(`file '${frames[frames.length - 1].file}'`); // the concat demuxer wants the last one twice
+  writeFileSync(list, lines.join("\n"));
+  const span = frames[frames.length - 1].t - frames[0].t;
+  log(`encoding ${frames.length} frames (${span.toFixed(0)} s, ${(frames.length / span).toFixed(1)} fps captured)`);
+  const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list, "-vf", "fps=30,format=yuv420p",
+    "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-movflags", "+faststart", VIDEO!], { stdio: "inherit" });
+  rmSync(frameDir, { recursive: true, force: true });
+  log(r.status === 0 ? `video: ${VIDEO}` : `ffmpeg failed (${r.status})`);
+}
+
 let shotN = 0;
 async function shot(name: string) {
   if (!SHOTS || !page) return;
@@ -105,9 +147,10 @@ try {
   log(`room ${code}: the screen is in`);
   const names = await libraryNames(SERVER);
   const wild = WILD_PHRASES.slice(0, Math.max(0, WILD));
-  const mk = (n: number) => new PhoneBot({ server: SERVER, room: code, nickname: `test-bot-${n}`, names, every: 2.4, wild: n === 1 ? wild : [], taps: 0.25, seed: 1000 * n + (t0 % 997), log });
+  const mk = (n: number) => new PhoneBot({ server: SERVER, room: code, nickname: `test-bot-${n}`, names, every: EVERY, wild: n === 1 ? wild : [], taps: 0.25, seed: 1000 * n + (t0 % 997), log });
   bots = ONE_BOT ? [mk(1)] : [mk(1), mk(2)];
   for (const b of bots) await b.start();
+  await startVideo();
   await shot("lobby");
 
   // until the match ends
@@ -132,14 +175,17 @@ try {
       else if (ev.kind === "down") log(`player ${ev.player} is down`);
       else if (ev.kind === "fizzle") log(`fizzle: player ${ev.player} ${ev.move} (${ev.why})`);
       else if (ev.kind === "cast" && ev.new) { log(`new spell played: ${ev.move}`); await shot("wildcard"); }
-      else if (ev.kind === "match_end") { log(`match over: player ${ev.winner} wins`); await sleep(2500); await shot("victory"); ended = true; }
+      else if (ev.kind === "match_end") { log(`match over: player ${ev.winner} wins`); await sleep(2500); await shot("victory"); if (VIDEO) await sleep(3000); ended = true; }
     }
   }
 
   // ---------------------------------------------------------------- what happened
   const ev = bots[0].events.map((e) => e.event);
   const kinds = (k: string) => ev.filter((e) => e.kind === k);
-  const starts = kinds("round_start").length, ends = kinds("round").length;
+  // (a recording waits past the end, long enough for the rematch's first round to start: not counted)
+  const endAt = ev.findIndex((e) => e.kind === "match_end");
+  const inMatch = endAt >= 0 ? ev.slice(0, endAt + 1) : ev;
+  const starts = inMatch.filter((e) => e.kind === "round_start").length, ends = inMatch.filter((e) => e.kind === "round").length;
   expect(kinds("match_end").length === 1, `the match ended with a winner (player ${kinds("match_end")[0]?.winner})`);
   expect(starts >= 2 && starts === ends, `every round that started ended (${starts} started, ${ends} ended)`);
   // shouts -> casts: each library shout the server answered with "play" should play or fizzle on the screen
@@ -177,6 +223,7 @@ try {
 } catch (e) {
   expect(false, `ran to the end: ${e instanceof Error ? e.message : String(e)}`);
 } finally {
+  await stopVideo().catch((e) => log(`video: ${e}`));
   for (const b of bots) b.stop();
   // the bots' live wildcards leave the library again
   for (const b of bots) {
