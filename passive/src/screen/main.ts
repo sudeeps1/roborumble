@@ -250,8 +250,9 @@ arena.on((e: ArenaEvent) => {
       hud.hp(e.defender, e.hp, arena.maxHp);
       const k = Math.min(1.6, e.impulse / 30);
       const big = !e.blocked && (e.knockdown || e.counter || e.clean || e.damage >= 12);
-      freeze(e.blocked ? 45 : big ? 95 + 50 * k : 55 + 25 * k);
-      director.shake(e.blocked ? 0.12 : Math.min(0.8, 0.16 + 0.32 * k + (e.knockdown ? 0.25 : 0)));
+      // a short hit-stop on big hits only, and a gentler shake: the longer pauses read as lag on a busy laptop
+      freeze(big ? 50 : 0);
+      director.shake(e.blocked ? 0.06 : Math.min(0.4, 0.08 + 0.16 * k + (e.knockdown ? 0.12 : 0)));
       director.kick(e.dir, e.blocked ? 0.008 : 0.02 + 0.02 * k);
       if (big) director.punch(e.point, e.knockdown ? 0.17 : 0.1);
       if (e.knockdown || e.counter) flash(e.knockdown ? 0.7 : 0.4);
