@@ -71,4 +71,4 @@ Room messages, all JSON with a `type` field:
 - phone → game: `join {player?, nickname, character}`, `tap {player, action}`, `leave {player}`
 - server → game: `play {player, move, loudness, motion?}`, `charge {player, job, guess}`, `ready {player, job, move}`,
   `narrate {text}` (Commentator lines; not in CLAUDE.md yet)
-- game → phones: `state {round, timer, wins, players}` 10×/s, `event {event}` (sim events + round_start, match_end)
+- game → phones: `state {round, timer, wins, players, seats}` 10×/s, `event {event}` (sim events + round_start, match_end)
