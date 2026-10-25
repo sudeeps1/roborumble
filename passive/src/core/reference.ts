@@ -180,6 +180,55 @@ export function waistToHips(frames: Frame[], k = 1, extra = FORWARD_LEAN): Frame
   return frames;
 }
 
+/** How snapArms exaggerates a move's fast arm motion (see there). */
+export interface Snap { s: number; thr: number; sigma: number; gain: number; wrist: number }
+
+/**
+ * SONIC smooths fast arm moves: a spell's thrust comes out at about half the clip's hand speed.
+ * This exaggerates the arms (shoulders and elbows, wrists by `wrist`) away from the move's first
+ * pose by up to (s - 1) where the clip moves them fast (above `thr` of its top arm speed, weight
+ * smoothed over `sigma` frames and scaled by `gain`), so the robot's strike comes out closer to the
+ * clip's speed. Slow parts and the rest of the body are untouched; joints stay in [lo, hi].
+ */
+export function snapArms(frames: Frame[], k: Snap, lo: ArrayLike<number>, hi: ArrayLike<number>): Frame[] {
+  const n = frames.length;
+  if (!(k.s > 1) || n < 3) return frames;
+  const sides = [[15, 16, 17, 18, 19, 20, 21], [22, 23, 24, 25, 26, 27, 28]]; // shoulder x3, elbow, wrist x3
+  const orig = frames.map((f) => Float64Array.from(f));
+  const speed = (js: number[]) => orig.map((_, i) => {
+    const a = orig[Math.min(i, n - 2)], b = orig[Math.min(i + 1, n - 1)];
+    let s = 0;
+    for (const j of js.slice(0, 4)) { const d = (b[7 + j] - a[7 + j]) * REF_HZ; s += d * d; }
+    return Math.sqrt(s);
+  });
+  const v = sides.map(speed), vmax = Math.max(...v[0], ...v[1]), thr = k.thr * vmax;
+  if (!(vmax > thr)) return frames;
+  sides.forEach((js, side) => {
+    const w = smooth(v[side].map((x) => Math.max(0, Math.min(1, (x - thr) / (vmax - thr)))), k.sigma).map((x) => Math.min(1, x * k.gain));
+    for (let i = 0; i < n; i++) {
+      if (!w[i]) continue;
+      js.forEach((j, m) => {
+        const e = (k.s - 1) * w[i] * (m < 4 ? 1 : k.wrist);
+        const q = orig[i][7 + j] + e * (orig[i][7 + j] - orig[0][7 + j]);
+        frames[i][7 + j] = Math.min(hi[j], Math.max(lo[j], q));
+      });
+    }
+  });
+  return frames;
+}
+
+/** Gaussian smoothing (sigma in samples), renormalized at the ends. */
+function smooth(x: number[], sigma: number): number[] {
+  if (!(sigma > 0)) return x.slice();
+  const R = Math.ceil(sigma * 3), ker: number[] = [];
+  for (let d = -R; d <= R; d++) ker.push(Math.exp(-(d * d) / (2 * sigma * sigma)));
+  return x.map((_, i) => {
+    let s = 0, w = 0;
+    for (let d = -R; d <= R; d++) { const j = i + d; if (j < 0 || j >= x.length) continue; s += x[j] * ker[d + R]; w += ker[d + R]; }
+    return s / w;
+  });
+}
+
 /** A frame that holds a pose: root at pos/quat, joints given (MuJoCo order). */
 export function poseFrame(pos: ArrayLike<number>, quat: ArrayLike<number>, joints: ArrayLike<number>): Frame {
   const f = new Float64Array(36);
