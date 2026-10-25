@@ -9,7 +9,8 @@
     "dev": "vite",
     "planner": "node planner/server.ts",
     "headless": "node scripts/headless.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "rig:human": "/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python scripts/rig_human.py --"
   },
   "dependencies": {
     "@mujoco/mujoco": "3.17.0",

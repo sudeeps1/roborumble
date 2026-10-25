@@ -28,6 +28,25 @@ Headless checks (Node, no browser):
 - `npm run headless -- 300`: one robot standing, shoved at 4 s and 7 s with 300 N.
 - `node scripts/fight-check.ts Haymaker`: footwork, a haymaker, the fall and the get-up, printed as a log.
 
+## Human model (optional)
+The Human look uses a rigged human if `public/human/human_rigged.glb` exists. Without it, the
+rig draws simple mannequins. To make it from a static human mesh (an FBX standing in an A-pose,
+like the one in Sudeep's `human.zip`), run this once (needs Blender):
+
+```
+npm run rig:human -- path/to/Human.fbx public/human/human_rigged.glb
+```
+
+`scripts/rig_human.py` finds the joints from the mesh, builds 15 bones (hips, torso, head, and
+thighs, shins, feet, upper arms, forearms and hands on both sides), and skins the mesh with
+Blender's automatic weights. `src/rig/humanRig.ts` drives it from the robot:
+- **Limbs** point along the G1 segments (shoulder to elbow, hip to knee, ...) and are twisted
+  by the G1 elbow and knee hinges, so the A-pose versus robot rest pose doesn't matter.
+- **Pelvis, torso, head and feet** copy the G1 body orientations.
+- **Size:** the body is scaled to the robot's hip height.
+
+The model file is gitignored because its license isn't known. Don't commit it unless that's cleared.
+
 ## How it works
 
 | Piece | File | What it does |

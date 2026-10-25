@@ -5,6 +5,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RING_RADIUS } from "../core/scene.ts";
 import type { RobotHandle, World } from "../core/world.ts";
 import { Human, type HumanLook } from "./human.ts";
+import { RiggedHuman } from "./humanRig.ts";
 
 export type Look = "human" | "robot" | "both";
 
@@ -19,10 +20,11 @@ export class View {
   private m4 = new THREE.Matrix4();
   private flashes: Flash[] = [];
   private world: World;
-  private humans: Human[] = [];
+  private humans: { group: THREE.Object3D; sync(): void }[] = [];
   private robotMats: THREE.MeshStandardMaterial[] = [];
 
-  constructor(container: HTMLElement, world: World, tints: number[], looks: HumanLook[]) {
+  /** humanModel: the rigged glTF from scripts/rig_human.py; without it the humans are mannequins. */
+  constructor(container: HTMLElement, world: World, tints: number[], looks: HumanLook[], humanModel: THREE.Object3D | null = null) {
     this.world = world;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -61,7 +63,11 @@ export class View {
     this.scene.add(grid);
 
     this.buildRobots(tints);
-    this.humans = world.robots.map((r, i) => new Human(world, r, looks[i]));
+    this.humans = world.robots.map((r, i) => {
+      if (!humanModel) return new Human(world, r, looks[i]);
+      const h = new RiggedHuman(humanModel, world, r, looks[i]);
+      return { group: h.root, sync: () => h.sync() };
+    });
     for (const h of this.humans) this.scene.add(h.group);
     addEventListener("resize", () => {
       this.camera.aspect = innerWidth / innerHeight;

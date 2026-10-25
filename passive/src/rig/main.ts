@@ -8,6 +8,7 @@ import { tiltOf } from "../core/math.ts";
 import { HttpPlanner, Mode } from "../core/planner.ts";
 import { SonicPolicy } from "../core/sonic.ts";
 import { World } from "../core/world.ts";
+import { loadHumanModel } from "./humanRig.ts";
 import { type Look, View } from "./render.ts";
 
 const boot = document.getElementById("boot")!;
@@ -43,10 +44,12 @@ const arena = new Arena(world, [you, opp]);
 const reset = () => { you.spawn(-0.7, 0, 0); opp.spawn(0.7, 0, Math.PI); };
 reset();
 
+say("Loading the human model…");
+const humanModel = await loadHumanModel("/human/human_rigged.glb"); // see README: Human model
 const view = new View(document.body, world, [0xf0a63c, 0x6c8cff], [
   { skin: 0xd8a07c, shorts: 0xf0a63c, gloves: 0xc1272d, hair: 0x2a1c12 },
   { skin: 0x8a5a3c, shorts: 0x3d5afe, gloves: 0x1f4fd1, hair: 0x101010 },
-]);
+], humanModel);
 const startLook = (new URLSearchParams(location.search).get("look") as Look) ?? "human";
 view.setLook(startLook);
 boot.remove();
