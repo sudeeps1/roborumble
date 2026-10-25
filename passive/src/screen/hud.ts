@@ -154,14 +154,20 @@ export class Hud {
       if (this.now > p.trailHoldUntil && p.trailShown > p.hpShown) p.trailShown = Math.max(p.hpShown, p.trailShown - 45 * dt);
       p.trail.style.width = `${p.trailShown}%`;
     }
+    // pinned over the fighter's head, but kept whole on screen
+    const pin = (e: HTMLElement, a: { x: number; y: number }) => {
+      const half = e.offsetWidth / 2 + innerWidth * 0.015;
+      const x = Math.min(Math.max(a.x, half), innerWidth - half);
+      e.style.transform = `translate(${Math.round(x)}px, ${Math.round(Math.max(a.y, e.offsetHeight + innerHeight * 0.2))}px)`;
+    };
     for (let i = 0; i < 2; i++) {
       const a = this.anchors[i];
       const c = this.callouts[i];
       if (c) {
         if (this.now > this.calloutUntil[i]) { c.classList.add("out"); this.callouts[i] = null; setTimeout(() => c.remove(), 300); }
-        else c.style.transform = `translate(${Math.round(a.x)}px, ${Math.round(a.y)}px)`;
+        else pin(c, a);
       }
-      this.channelEls[i].style.transform = `translate(${Math.round(a.x)}px, ${Math.round(a.y)}px)`;
+      pin(this.channelEls[i], a);
     }
     if (this.bannerUntil && this.now > this.bannerUntil) this.hideBanner();
   }

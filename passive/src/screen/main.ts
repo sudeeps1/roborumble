@@ -89,7 +89,8 @@ const brains = arena.fighters.map((f, i) => {
   s.spellbook = book; // the sparring AI casts from the same book
   return s;
 });
-const aiOn = [params.get("ai") !== "0", params.get("ai") !== "0"];
+const demo = params.has("demo"); // a scripted bout (see flow): every kind of spell, both AIs off
+const aiOn = [params.get("ai") !== "0" && !demo, params.get("ai") !== "0" && !demo];
 let brainsLive = false;
 function syncBrains() { brains.forEach((b, i) => arena.setBrain(i as Who, brainsLive && aiOn[i] ? b : null)); }
 
@@ -108,6 +109,7 @@ let winner: Who | null = null;
 let fightShown = false;
 
 function startRound() {
+  for (const step of DEMO) step.done = false;
   arena.reset();
   fx.clear();
   phase = "intro"; phaseT = 0; clock = RULES.roundSeconds; winner = null; fightShown = false;
@@ -145,6 +147,7 @@ function flow(dtSim: number, dtReal: number) {
     // ?koAt=8: knock the knight out 8 s into each round (to check the KO shot without waiting for one)
     const koAt = Number(params.get("koAt") ?? 0);
     if (koAt && RULES.roundSeconds - clock >= koAt && arena.fighters[1].stance !== "ko") { arena.hp[1] = 0; arena.fighters[1].knockOut(); }
+    if (demo) for (const step of DEMO) if (!step.done && RULES.roundSeconds - clock >= step.at) { step.done = true; step.run(); }
     if (clock <= 0) { const [a, b] = arena.hp; endRound(a === b ? null : a > b ? 0 : 1, "time"); }
   } else if (phase === "ko") {
     if (phaseT > RULES.koHoldS) {
@@ -152,7 +155,7 @@ function flow(dtSim: number, dtReal: number) {
         phase = "over"; phaseT = 0;
         const w = arena.fighters[winner];
         director.cut("victory", { at: world.rootPos(w.robot), other: world.rootPos(w.opponent.robot) });
-        hud.show(`${ROSTER[winner].name} wins`, ROSTER[winner].title, RULES.victoryS - 0.5);
+        hud.show(`${ROSTER[winner].name} wins`, ROSTER[winner].title, RULES.victoryS - 0.5, "victory");
       } else { round++; startRound(); }
     }
   } else if (phase === "over" && phaseT > RULES.victoryS) newMatch();
@@ -251,6 +254,8 @@ const api = {
   defend: (p: 1 | 2, kind: Defense) => arena.fighters[P(p)].defend(kind),
   punch: (p: 1 | 2, name: PunchName) => arena.fighters[P(p)].throwPunch(name),
   ai(p: 1 | 2, on: boolean) { aiOn[P(p)] = on; syncBrains(); },
+  /** Freezes the fight (the camera keeps breathing): a freeze-frame, or a still to check. */
+  pause(on: boolean) { paused = on; },
   newMatch,
 };
 Object.assign(globalThis, { __screen: api });
@@ -285,6 +290,20 @@ addEventListener("keydown", (ev) => {
     setTimeout(() => { api.channel((i + 1) as 1 | 2, null); cast(i, { ...base.spec, name: "The Thunderous Crab King of the Sunken Deep", type: "lightning", power: 3 }, base.qpos, base.fps, true); }, 1600);
   } else f.defend(what as Defense);
 });
+
+// ?demo: one spell of each kind in turn (seconds into the round), to check them all on screen
+const spell = (name: string) => book.find((b) => b.spec.name === name) ?? book[0];
+const castNamed = (i: Who, name: string) => { const b = spell(name); if (b) cast(i, b.spec, b.qpos, b.fps); };
+const DEMO: { at: number; done: boolean; run: () => void }[] = ([
+  [0.8, () => castNamed(0, "Fireball")],
+  [3.6, () => castNamed(1, "Thunder Call")],
+  [6.6, () => api.channel(1, "summon the crab king", "lightning")],
+  [8.2, () => { api.channel(1, null); const b = spell("Thunder Call"); if (b) cast(0, { ...b.spec, name: "The Thunderous Crab King of the Sunken Deep", power: 3 }, b.qpos, b.fps, true); }],
+  [11.4, () => castNamed(1, "Spiral Sphere")],
+  [14.4, () => castNamed(0, "Earth Wall")],
+  [14.9, () => castNamed(1, "Fireball")],
+  [18, () => arena.fighters[0].throwPunch("punch.rightHook")],
+] as [number, () => void][]).map(([at, run]) => ({ at, run, done: false }));
 
 // ---------------------------------------------------------------- loop
 let last = performance.now(), acc = 0, busy = false;

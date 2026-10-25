@@ -12,6 +12,7 @@ export async function portrait(url: string, hue: number, side: "left" | "right",
   r.setClearColor(0x000000, 0);
   r.toneMapping = THREE.AgXToneMapping;
   r.toneMappingExposure = 1.25;
+  const dark = /knight/.test(url); // dark plate armour: give it more light so the icon reads at a glance
   const scene = new THREE.Scene();
   scene.environment = makeStudioEnvironment(r);
   scene.environmentIntensity = 0.6;
@@ -33,13 +34,13 @@ export async function portrait(url: string, hue: number, side: "left" | "right",
   } catch { /* no clip: bind pose */ }
   const hp = new THREE.Vector3().setFromMatrixPosition(c.boneMatrix("head") ?? new THREE.Matrix4());
   const sx = side === "right" ? 1 : -1;
-  const key = new THREE.DirectionalLight(0xffe2c8, 3.2);
+  const key = new THREE.DirectionalLight(0xffe2c8, dark ? 5.5 : 3.2);
   key.position.set(hp.x + 1.2 * sx, hp.y - 2.2, hp.z + 1.4);
   key.target.position.copy(hp);
   const back = new THREE.DirectionalLight(rim, 5);
   back.position.set(hp.x - 1.6 * sx, hp.y + 1.8, hp.z + 0.8);
   back.target.position.copy(hp);
-  scene.add(key, key.target, back, back.target, new THREE.HemisphereLight(0x8090b0, 0x302018, 0.7));
+  scene.add(key, key.target, back, back.target, new THREE.HemisphereLight(0x8090b0, 0x302018, dark ? 1.6 : 0.7));
   const cam = new THREE.PerspectiveCamera(20, 1, 0.05, 20);
   cam.up.set(0, 0, 1);
   cam.position.set(hp.x, hp.y - 1.55, hp.z + 0.03);
