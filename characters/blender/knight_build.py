@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import bpy
+import mathutils
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
@@ -16,8 +17,11 @@ import g1  # noqa: E402
 from fit_base import bone_map, seg_dist  # noqa: E402
 from rig import Rig  # noqa: E402
 
-SRC = Path(sys.argv[sys.argv.index("--") + 1])
-OUT = HERE.parent / "public" / "knight.glb"
+ARGS = sys.argv[sys.argv.index("--") + 1:]
+SRC = Path(ARGS[0])
+VARIANT = ARGS[1] if len(ARGS) > 1 else "knight"     # knight | king (same armor, royal palette + crown)
+OUT = HERE.parent / "public" / f"{VARIANT}.glb"
+import style  # noqa: E402
 TEX = 1024
 log = lambda *a: print("[knight]", *a, flush=True)
 
@@ -156,15 +160,19 @@ def recolor(img, metal):
     m = np.array(metal.pixels[:]).reshape(TEX, TEX, 4)[..., 0]
     grey = (sat < 0.18) & (mx > 0.12)
     bronze = (sat > 0.22) & (rgb[..., 0] > rgb[..., 2]) & (mx > 0.30)
-    green = np.array([0.10, 0.30, 0.17])                               # forest-green enamel (linear-ish)
-    gold = np.array([0.88, 0.58, 0.16])
+    if VARIANT == "king":
+        green = np.array([0.40, 0.035, 0.06])                          # crimson enamel
+        gold = np.array([0.98, 0.66, 0.16])
+    else:
+        green = np.array([0.05, 0.36, 0.15])                           # vivid emerald enamel
+        gold = np.array([0.98, 0.64, 0.14])
     lum = rgb.mean(-1, keepdims=True)
     enamel = green * (0.45 + 1.4 * lum)
-    k = (0.55 * grey * np.clip(0.4 + 0.6 * m, 0, 1))[..., None]
+    k = (0.66 * grey * np.clip(0.4 + 0.6 * m, 0, 1))[..., None]
     rgb = rgb * (1 - k) + enamel * k
     g = (0.75 * bronze)[..., None]
     rgb = rgb * (1 - g) + gold * (0.35 + 0.9 * lum) * g
-    a[..., :3] = np.clip(rgb, 0, 1)
+    a[..., :3] = style.grade(style.paint_flatten(np.clip(rgb, 0, 1)), vibrance=0.45, sat_cap=0.8)
     img.pixels = a.ravel().tolist()
     return img
 
@@ -172,7 +180,7 @@ def recolor(img, metal):
 mats = {}
 for i, mt in enumerate(me.materials):
     tid = {"blinn1": "ID01", "blinn2": "ID02", "blinn3": "ID03"}.get(mt.name, "ID0%d" % (i + 1))
-    new = bpy.data.materials.new(f"knight_{tid.lower()}")
+    new = bpy.data.materials.new(f"{VARIANT}_{tid.lower()}")
     new.use_nodes = True
     nt = new.node_tree
     bsdf = nt.nodes["Principled BSDF"]
@@ -184,8 +192,10 @@ for i, mt in enumerate(me.materials):
     px = np.array(nrm.pixels[:]).reshape(-1, 4)
     px[:, 1] = 1 - px[:, 1]
     nrm.pixels = px.ravel().tolist()
-    base = bake_jpeg(base, f"{tid}_base")
-    metal, rough, nrm = bake_jpeg(metal, f"{tid}_metal"), bake_jpeg(rough, f"{tid}_rough"), bake_jpeg(nrm, f"{tid}_normal", 90)
+    style.matte(rough, metal, rough_floor=0.58, metal_scale=0.5)     # matte finish, shared with the other fighters
+    base = bake_jpeg(base, f"{VARIANT}_{tid}_base")
+    metal, rough, nrm = (bake_jpeg(metal, f"{VARIANT}_{tid}_metal"), bake_jpeg(rough, f"{VARIANT}_{tid}_rough"),
+                         bake_jpeg(nrm, f"{VARIANT}_{tid}_normal", 90))
     for img in (metal, rough, nrm):
         img.colorspace_settings.name = "Non-Color"
     tb, tr, tmtl, tn = (nt.nodes.new("ShaderNodeTexImage") for _ in range(4))
@@ -197,15 +207,78 @@ for i, mt in enumerate(me.materials):
     nt.links.new(tn.outputs["Color"], nm_node.inputs["Color"])
     nt.links.new(nm_node.outputs["Normal"], bsdf.inputs["Normal"])
     me.materials[i] = new
+n_before = len(me.vertices)
+if VARIANT == "king":
+    import bmesh
+    v = fitted
+    hx, hy = T["top"][0], T["top"][1]
+    zc = T["top"][2] - 0.035                     # just above the brow of the helmet (the crest sticks up past it)
+    near = (np.abs(v[:, 2] - zc) < 0.006) & (np.hypot(v[:, 0] - hx, v[:, 1] - hy) < 0.15)
+    ring = v[near]
+    cx_, cy_ = ring[:, 0].mean(), ring[:, 1].mean()
+    rad = np.percentile(np.hypot(ring[:, 0] - cx_, ring[:, 1] - cy_), 90) + 0.004
+    bm = bmesh.new()
+    seg = 48
+    lo_r = [bm.verts.new((cx_ + rad * np.cos(t), cy_ + rad * np.sin(t), zc - 0.012)) for t in np.linspace(0, 2 * np.pi, seg, endpoint=False)]
+    hi_r = []
+    for i, t in enumerate(np.linspace(0, 2 * np.pi, seg, endpoint=False)):
+        spike = 0.030 if i % 6 == 0 else 0.012 + 0.004 * np.cos(i * np.pi / 3)
+        hi_r.append(bm.verts.new((cx_ + (rad + 0.002) * np.cos(t), cy_ + (rad + 0.002) * np.sin(t), zc + spike)))
+    for i in range(seg):
+        j = (i + 1) % seg
+        bm.faces.new((lo_r[i], lo_r[j], hi_r[j], hi_r[i]))
+    gems = []
+    for i in range(0, seg, 6):
+        t = 2 * np.pi * i / seg
+        res = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=0.0055)
+        for vv in res["verts"]:
+            vv.co += mathutils.Vector((cx_ + (rad + 0.003) * np.cos(t), cy_ + (rad + 0.003) * np.sin(t), zc + 0.002))
+        gems += res["verts"]
+    crown_me = bpy.data.meshes.new("crown")
+    bm.to_mesh(crown_me)
+    bm.free()
+    crown = bpy.data.objects.new("Crown", crown_me)
+    scene.collection.objects.link(crown)
+    for mt_name in ("gold", "gem"):
+        mt = bpy.data.materials.new(mt_name)
+        mt.use_nodes = True
+        b_ = mt.node_tree.nodes["Principled BSDF"]
+        b_.inputs["Metallic"].default_value = 1.0 if mt_name == "gold" else 0.0
+        b_.inputs["Roughness"].default_value = 0.4 if mt_name == "gold" else 0.1
+        crown_me.materials.append(mt)
+    gem_ids = set()
+    nv_ring = 2 * seg
+    for poly in crown_me.polygons:
+        poly.material_index = 1 if min(poly.vertices) >= nv_ring else 0
+    for ob in scene.objects:
+        ob.select_set(ob in (knight, crown))
+    bpy.context.view_layer.objects.active = knight
+    bpy.ops.object.join()
+    me = knight.data
+    fitted = np.zeros(len(me.vertices) * 3)
+    me.vertices.foreach_get("co", fitted)
+    fitted = fitted.reshape(-1, 3)
+    ev = np.zeros(len(me.edges) * 2, int)
+    me.edges.foreach_get("vertices", ev)
+    ev = ev.reshape(-1, 2)
+    deg = np.maximum(np.bincount(ev.ravel(), minlength=len(fitted)), 1).astype(float)
 # white vertex colors: the runtime's materials multiply by COLOR_0
 ca = me.color_attributes.new("Col", "FLOAT_COLOR", "CORNER")
-ca.data.foreach_set("color", np.ones(len(me.loops) * 4, np.float32))
+cols = np.ones((len(me.loops), 4), np.float32)
+if VARIANT == "king":
+    lv = np.zeros(len(me.loops), int)
+    me.loops.foreach_get("vertex_index", lv)
+    crown_v = lv >= n_before
+    gem_v = lv >= n_before + 96
+    cols[crown_v, :3] = [0.80, 0.48, 0.10]       # gold (linear)
+    cols[gem_v, :3] = [0.05, 0.70, 0.30]         # emerald
+ca.data.foreach_set("color", cols.ravel())
 me.color_attributes.active_color = ca
 
 # ---------------------------------------------------------------- rig to the G1 like the elf
 rig = Rig(W, None)
-arm_data = bpy.data.armatures.new("KnightRig")
-arm_ob = bpy.data.objects.new("KnightRig", arm_data)
+arm_data = bpy.data.armatures.new(VARIANT.capitalize() + "Rig")
+arm_ob = bpy.data.objects.new(VARIANT.capitalize() + "Rig", arm_data)
 scene.collection.objects.link(arm_ob)
 bpy.context.view_layer.objects.active = arm_ob
 bpy.ops.object.mode_set(mode="EDIT")
@@ -279,5 +352,5 @@ bpy.ops.export_scene.gltf(filepath=str(OUT), export_format="GLB", use_selection=
                           export_skins=True, export_animations=False, export_extras=True,
                           export_vertex_color="ACTIVE", export_image_format="JPEG", export_jpeg_quality=85,
                           export_apply=False, export_def_bones=False, export_rest_position_armature=True)
-bpy.ops.wm.save_as_mainfile(filepath=str(HERE.parent / "public" / "knight.blend"), copy=True)
+bpy.ops.wm.save_as_mainfile(filepath=str(HERE.parent / "public" / f"{VARIANT}.blend"), copy=True)
 log(f"wrote {OUT} ({OUT.stat().st_size / 1e6:.1f} MB)")

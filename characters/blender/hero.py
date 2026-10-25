@@ -91,6 +91,8 @@ cam = bpy.data.objects.new("hero", cam_d)
 scene.collection.objects.link(cam)
 cam.location = (2.55, 1.35, 1.05)
 target = mathutils.Vector((0.03, 0.0, 0.70))
+if len(args) > 3 and args[3] == "face":          # close-up of the head
+    cam.location, target = mathutils.Vector((1.05, 0.45, 1.36)), mathutils.Vector((0.04, 0.0, 1.27))
 cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
 cam_d.dof.focus_distance = (target - cam.location).length - 0.1
 scene.camera = cam

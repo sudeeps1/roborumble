@@ -1,6 +1,7 @@
 // Viewer: two elves ~1.2 m apart driven by procedural G1 motions (anims.ts -> fk.ts -> CharacterView).
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
@@ -128,6 +129,99 @@ const ring = new THREE.Mesh(
 ring.position.set(GAP / 2, 0.002, 0);
 scene.add(ring);
 
+// ---------------------------------------------------------------- forest arena (public/arena.glb)
+// glTF Y-up, meters, fight spot at the origin. Lives in the scene root, not the MuJoCo `world` group.
+// The default camera sits at +Z looking toward -Z, so "behind the fighters" is -Z in three space.
+// ARENA_YAW rotates the arena about Y (radians): frames the giant tree stump behind the fighters from the default camera.
+// ?arena=0 keeps the old studio stage; ?arenaYaw=<degrees> overrides the yaw for quick tuning.
+const ARENA_YAW = THREE.MathUtils.degToRad(-20);
+const ARENA_SHADOW_RADIUS = 12; // only meshes within this distance of the origin cast shadows (perf)
+const arena = new THREE.Group();
+arena.name = "arena";
+{
+  const qs = new URLSearchParams(location.search);
+  const yawDeg = qs.get("arenaYaw");
+  arena.rotation.y = yawDeg !== null && !Number.isNaN(Number(yawDeg)) ? THREE.MathUtils.degToRad(Number(yawDeg)) : ARENA_YAW;
+  if (qs.get("arena") !== "0") {
+    new GLTFLoader()
+      .loadAsync("/arena.glb")
+      .then((gltf) => {
+        arena.add(gltf.scene);
+        scene.add(arena);
+        arena.updateMatrixWorld(true);
+        const box = new THREE.Box3();
+        const origin = new THREE.Vector3();
+        gltf.scene.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          m.receiveShadow = true;
+          const matName = (Array.isArray(m.material) ? m.material[0] : m.material)?.name ?? "";
+          // clouds sit overhead and would shade the fighters through the key light
+          m.castShadow = !/cloud/i.test(matName) && box.setFromObject(m).distanceToPoint(origin) < ARENA_SHADOW_RADIUS;
+          if (/cloud/i.test(matName)) m.visible = false;      // night sky: the stars carry it
+          for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+            const sm = mat as THREE.MeshStandardMaterial;
+            sm.color?.multiplyScalar(0.72);                   // night: the forest sits darker than the fighters
+            sm.roughness = 1;                                 // no grazing sheen on the big flat low-poly faces
+            sm.metalness = 0;
+            sm.envMapIntensity = 0.25;
+          }
+        });
+        // swap the studio stage for the forest at night: near-black violet sky with pink and purple stars
+        ground.visible = false;
+        (ring.material as THREE.MeshBasicMaterial).opacity = 0.45;
+        scene.background = (() => {
+          const c = document.createElement("canvas");
+          c.width = 2; c.height = 256;
+          const g = c.getContext("2d")!;
+          const grd = g.createLinearGradient(0, 0, 0, 256);
+          grd.addColorStop(0, "#05030b");
+          grd.addColorStop(0.6, "#0d0718");
+          grd.addColorStop(1, "#1a0f2a");
+          g.fillStyle = grd;
+          g.fillRect(0, 0, 2, 256);
+          const t = new THREE.CanvasTexture(c);
+          t.colorSpace = THREE.SRGBColorSpace;
+          return t;
+        })();
+        scene.add(stars());
+        scene.fog = new THREE.Fog(0x120a1e, 16, 60);
+        // violet sky / mossy ground ambient so the fighters' undersides are not muddy in the dark
+        bounce.color.set(0x8a72b8);
+        bounce.groundColor.set(0x2c3a26);
+        bounce.intensity = 0.55;
+        key.color.set(0xeadcff);                             // cool moonlit key, a touch dimmer
+        key.intensity = 2.5;
+        console.info("[arena] loaded, yaw", THREE.MathUtils.radToDeg(arena.rotation.y).toFixed(1), "deg");
+      })
+      .catch((err) => console.warn("[arena] /arena.glb not loaded, keeping the studio stage:", err?.message ?? err));
+  }
+}
+
+/** Star field on a far sphere (upper sky mostly): pink and purple points, a few brighter ones. Not fogged. */
+function stars(n = 2400): THREE.Points {
+  const pos = new Float32Array(n * 3);
+  const col = new Float32Array(n * 3);
+  const pal = [new THREE.Color(0xff4fcf), new THREE.Color(0x9a5cff), new THREE.Color(0xc96bff), new THREE.Color(0xff78b4)];
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < n; i++) {
+    const u = rnd() * 2 * Math.PI;
+    const v = Math.asin(rnd() * 1.05 - 0.05);            // mostly above the horizon
+    const r = 52;                                      // inside the camera far plane (60)
+    pos.set([r * Math.cos(v) * Math.cos(u), r * Math.sin(v), r * Math.cos(v) * Math.sin(u)], i * 3);
+    const c = pal[Math.floor(rnd() * pal.length)].clone().multiplyScalar(0.35 + 0.65 * rnd() ** 2);
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 2.8, sizeAttenuation: false, vertexColors: true, fog: false, depthWrite: false }));
+  pts.name = "stars";
+  pts.renderOrder = -1;
+  return pts;
+}
+
 // ---------------------------------------------------------------- contact shadows (three.js webgl_shadow_contact technique)
 const contact = (() => {
   const W = 4.2, D = 3.2, HEIGHT = 0.45, RES = 1024;
@@ -231,7 +325,7 @@ gtao.blendMaterial.blendDstAlpha = THREE.OneFactor;
 }
 composer.addPass(gtao);
 
-const bloom = new UnrealBloomPass(new THREE.Vector2(Math.max(size.x, 2), Math.max(size.y, 2)), 0.45, 0.3, 0.04);
+const bloom = new UnrealBloomPass(new THREE.Vector2(Math.max(size.x, 2), Math.max(size.y, 2)), 0.12, 0.2, 0.04);   // very subtle
 bloom.materialHighPassFilter.fragmentShader = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform float luminosityThreshold;
@@ -491,7 +585,7 @@ function frame(fixedDt?: number) {
   }
   controls.update();
   cpuMs = cpuMs * 0.9 + (performance.now() - t0) * 0.1;
-  contact.render([ground, ring, ...fighters.map((f) => f.skel.group)]);
+  contact.render([ground, ring, arena, ...fighters.map((f) => f.skel.group)]);
   composer.render();
 
   fpsFrames++;

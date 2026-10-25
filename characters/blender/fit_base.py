@@ -150,6 +150,148 @@ def athletic_chest(P, keep=0.33, fill=0.75):
     return P
 
 
+def _sst(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def _edges(tri):
+    e = np.concatenate([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]])
+    e = np.sort(e, 1)
+    return np.unique(e, axis=0)
+
+
+def _laplace(P, e, deg):
+    acc = np.zeros_like(P)
+    np.add.at(acc, e[:, 0], P[e[:, 1]])
+    np.add.at(acc, e[:, 1], P[e[:, 0]])
+    return acc / deg[:, None] - P
+
+
+def _vnormals(P, tri):
+    fn = np.cross(P[tri[:, 1]] - P[tri[:, 0]], P[tri[:, 2]] - P[tri[:, 0]])
+    vn = np.zeros_like(P)
+    for i in range(3):
+        np.add.at(vn, tri[:, i], fn)
+    return vn / np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-12)
+
+
+def soften(P, tri, mask, iters=8, lam=0.5, mu=-0.53):
+    """Taubin smoothing (shrink-free) weighted per vertex by mask in 0..1: irons out small anatomy (fine muscle
+    striations, wrinkles, the nasolabial fold) and keeps the big forms."""
+    e = _edges(tri)
+    deg = np.maximum(np.bincount(e.ravel(), minlength=len(P)), 1).astype(float)
+    m = mask[:, None]
+    for _ in range(iters):
+        P = P + m * lam * _laplace(P, e, deg)
+        P = P + m * mu * _laplace(P, e, deg)
+    return P
+
+
+def flatten_ears(P, tri, fs, ear_sets=(4, 5), iters=5000):
+    """Melt the human ears into the side of the head (the elf ears are separate): every ear vertex not on the
+    ear's border ring relaxes to the harmonic membrane spanning that ring."""
+    P = P.copy()
+    ear = np.isin(fs, ear_sets)
+    ev = np.unique(tri[ear])
+    border = np.intersect1d(ev, np.unique(tri[~ear]))
+    free = np.setdiff1d(ev, border)
+    if not len(free):
+        return P
+    loc = np.full(len(P), -1)
+    loc[ev] = np.arange(len(ev))
+    e = loc[_edges(tri[ear])]                       # local indices on the ear patch
+    Q = P[ev]
+    isfree = np.isin(ev, free)
+    deg = np.maximum(np.bincount(e.ravel(), minlength=len(ev)), 1).astype(float)
+    for _ in range(iters):
+        acc = np.zeros_like(Q)
+        np.add.at(acc, e[:, 0], Q[e[:, 1]])
+        np.add.at(acc, e[:, 1], Q[e[:, 0]])
+        Q[isfree] = acc[isfree] / deg[isfree, None]
+    P[ev] = Q
+    return P
+
+
+def shape_face(P, tri, eyes):
+    """The elf's face: a touch slimmer and longer (narrower cheeks and jaw, chin 3 mm lower), a soft zygomatic
+    ridge with a hollow under it, a smaller softer nose and heavier lids (smaller, calmer eye openings).
+    Returns the new vertices and the eye vertices with the same lateral squeeze."""
+    P = P.copy()
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    head = _sst(1.115, 1.140, z)
+    # --- lids: rotate the lid skin about each eye's lateral axis (upper down, lower up); corners stay put
+    up = np.array([0.0, 0, 1])
+    for k, s in (("eyeL", 1), ("eyeR", -1)):
+        E = eyes[k].mean(0)
+        r0 = float(np.linalg.norm(eyes[k] - E, axis=1).mean())
+        g = np.array([np.cos(np.radians(4)), s * np.sin(np.radians(4)), 0])
+        lat = np.cross(up, g)
+        lat /= np.linalg.norm(lat)
+        side = np.cross(g, up)                  # + toward the eye's own left
+        q = P - E
+        r = np.linalg.norm(q, axis=1) + 1e-12
+        near = r < r0 + 0.016
+        qn = q[near]
+        rn = r[near]
+        d = qn / rn[:, None]
+        el = np.degrees(np.arcsin(np.clip(d @ up, -1, 1)))
+        az = np.degrees(np.arctan2(d @ side, d @ g))
+        wr = _sst(r0 + 0.013, r0 + 0.003, rn) * _sst(0.0, 0.35, d @ g)
+        wa = np.clip(1 - (az / 52.0) ** 2, 0, 1) ** 0.8
+        theta = np.radians(7.5 * _sst(-3, 5, el) - 3.0 * _sst(3, -5, el)) * wr * wa
+        c, sn = np.cos(theta)[:, None], np.sin(theta)[:, None]
+        rot = qn * c + np.cross(lat, qn) * sn + lat[None] * (qn @ lat)[:, None] * (1 - c)
+        P[near] = E + rot
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    # --- normals before the reshaping (for the cheekbone push)
+    N = _vnormals(P, tri)
+    # --- cheekbones: a ridge from under the outer eye corner back toward the ear, a hollow under it
+    disp = np.zeros(len(P))
+    for s in (1, -1):
+        A, B = np.array([0.068, s * 0.047, 1.208]), np.array([0.036, s * 0.058, 1.214])
+        dr, _t = seg_dist(P, A, B)
+        out = _sst(0.15, 0.5, s * N[:, 1])
+        disp += 0.0017 * np.exp(-(dr / 0.0062) ** 2) * out
+        C = np.array([0.060, s * 0.049, 1.183])
+        q = (P - C) / np.array([0.016, 0.016, 0.011])
+        disp -= 0.0024 * np.exp(-(q * q).sum(1) * 1.4) * out
+    P += N * (disp * head)[:, None]
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    # --- smaller, softer nose
+    Nc = np.array([0.101, 0.0, 1.206])
+    wn = _sst(0.026, 0.008, np.linalg.norm(P - Nc, axis=1))
+    P[:, 0] = x - wn * 0.34 * np.maximum(x - 0.092, 0)
+    P[:, 1] = y * (1 - 0.18 * wn)
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    # --- profile: mouth sits back a little, chin comes forward a little (no muzzle)
+    q = (P - np.array([0.104, 0.0, 1.176])) / np.array([0.020, 0.030, 0.020])
+    P[:, 0] -= 0.0026 * np.exp(-(q * q).sum(1) * 1.5)
+    q = (P - np.array([0.094, 0.0, 1.143])) / np.array([0.020, 0.022, 0.014])
+    P[:, 0] += 0.0016 * np.exp(-(q * q).sum(1) * 1.5)
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    # --- slimmer, longer face: lateral squeeze strongest at the jaw/cheeks, gone by the temples
+    ZS, AS = [1.125, 1.145, 1.170, 1.195, 1.212, 1.232, 1.255], [0.0, 0.14, 0.14, 0.11, 0.05, 0.02, 0.0]
+
+    def squeeze(Q):
+        aq = np.interp(Q[:, 2], ZS, AS) * (0.3 + 0.7 * _sst(-0.025, 0.02, Q[:, 0]))
+        Q = Q.copy()
+        Q[:, 1] *= 1 - aq
+        return Q
+
+    P[:, 1] = squeeze(P)[:, 1]
+    P[:, 2] = z - 0.0032 * _sst(1.205, 1.150, z) * _sst(1.110, 1.140, z) * _sst(-0.03, 0.03, x)
+    eyes = {k: squeeze(v) for k, v in eyes.items()}
+    # --- soften the whole face (no prominent features), lids a little less so the openings stay clean
+    lid = np.zeros(len(P))
+    for k in ("eyeL", "eyeR"):
+        E = eyes[k].mean(0)
+        lid = np.maximum(lid, _sst(0.020, 0.012, np.linalg.norm(P - E, axis=1)))
+    face = _sst(1.13, 1.16, z) * _sst(1.29, 1.26, z) * _sst(0.0, 0.04, x)
+    P = soften(P, tri, face * (1 - 0.7 * lid), iters=10)
+    return P, eyes
+
+
 def fit(npz_path=CACHE / "hbm_female.npz", out_path=CACHE / "base_fitted.npz", log=print):
     d = np.load(npz_path)
     co_raw, tri = d["body_co"], d["body_tri"]
@@ -212,6 +354,11 @@ def fit(npz_path=CACHE / "hbm_female.npz", out_path=CACHE / "base_fitted.npz", l
     hi = [b[0] for b in B].index("head")
     A, t = maps[hi]
     eyes = {k: v @ A.T + t for k, v in eyes.items()}
+    # smoother skin everywhere (gentle), then the elf's face
+    fs = d["body_fs"] if "body_fs" in d else np.zeros(len(tri), int)
+    out = flatten_ears(out, tri, fs)
+    out = soften(out, tri, np.full(len(out), 0.8), iters=6)
+    out, eyes = shape_face(out, tri, eyes)
     np.savez_compressed(out_path, verts=out, tris=tri, eyeL=eyes["eyeL"], eyeR=eyes["eyeR"],
                         eye_tris=d["eyeL_tri"], facesets=d["body_fs"] if "body_fs" in d else np.zeros(len(tri)),
                         **{"S_" + k: v for k, v in S.items()}, **{"T_" + k: v for k, v in T.items()})

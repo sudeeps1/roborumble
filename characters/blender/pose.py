@@ -30,7 +30,31 @@ POSES = {
     "hit": {**_LEGS_BENT, "waist_pitch_joint": -0.4, "waist_roll_joint": 0.25,
             "left_shoulder_pitch_joint": 0.3, "left_shoulder_roll_joint": 0.9, "left_elbow_joint": 0.6,
             "right_shoulder_pitch_joint": -0.8, "right_shoulder_roll_joint": -0.5, "right_elbow_joint": 0.2},
+    # stress battery: the extremes Kimodo motions can reach (skinning, clipping and silhouette checks)
+    "t_pose": {"left_shoulder_roll_joint": 1.50, "right_shoulder_roll_joint": -1.50, "left_elbow_joint": 1.57,
+               "right_elbow_joint": 1.57},
+    "arms_up": {"left_shoulder_pitch_joint": -2.90, "left_shoulder_roll_joint": 0.25, "left_elbow_joint": 1.45,
+                "right_shoulder_pitch_joint": -2.90, "right_shoulder_roll_joint": -0.25, "right_elbow_joint": 1.45},
+    "uppercut": {**_LEGS_BENT, **_GUARD_ARMS, "waist_yaw_joint": 0.55, "waist_pitch_joint": 0.25,
+                 "right_shoulder_pitch_joint": -1.95, "right_shoulder_roll_joint": -0.05, "right_elbow_joint": -0.65},
+    "high_kick": {**_GUARD_ARMS, "right_hip_pitch_joint": -2.05, "right_knee_joint": 0.10, "right_ankle_pitch_joint": 0.3,
+                  "left_hip_pitch_joint": -0.10, "left_knee_joint": 0.25, "waist_pitch_joint": 0.35},
+    "side_kick": {**_GUARD_ARMS, "right_hip_roll_joint": -1.35, "right_hip_pitch_joint": -0.35, "right_knee_joint": 0.25,
+                  "left_hip_roll_joint": 0.15, "left_knee_joint": 0.2, "waist_roll_joint": 0.45},
+    "knee_strike": {**_GUARD_ARMS, "right_hip_pitch_joint": -1.65, "right_knee_joint": 2.30,
+                    "left_knee_joint": 0.20, "waist_pitch_joint": -0.15},
+    "squat": {"left_hip_pitch_joint": -1.65, "left_knee_joint": 2.25, "left_ankle_pitch_joint": -0.65,
+              "right_hip_pitch_joint": -1.65, "right_knee_joint": 2.25, "right_ankle_pitch_joint": -0.65,
+              "waist_pitch_joint": 0.40, "left_shoulder_pitch_joint": -1.30, "left_elbow_joint": 1.2,
+              "right_shoulder_pitch_joint": -1.30, "right_elbow_joint": 1.2},
+    "twist": {**_LEGS_BENT, "waist_yaw_joint": 1.20, "waist_roll_joint": 0.30,
+              "left_shoulder_pitch_joint": -1.2, "left_shoulder_yaw_joint": -0.9, "left_elbow_joint": 0.2,
+              "right_shoulder_pitch_joint": 0.6, "right_shoulder_roll_joint": -0.6, "right_elbow_joint": 0.9},
+    "split": {"left_hip_roll_joint": 0.85, "right_hip_roll_joint": -0.85, "left_shoulder_roll_joint": 0.9,
+              "right_shoulder_roll_joint": -0.9, "left_elbow_joint": 0.6, "right_elbow_joint": 0.6},
 }
+STRESS = ["bind", "guard", "jab", "uppercut", "kick", "high_kick", "side_kick", "knee_strike", "hit", "squat",
+          "twist", "split", "t_pose", "arms_up"]
 
 
 def _mat(pos, quat):
@@ -51,6 +75,7 @@ def body_poses(angles):
 def apply(arm_ob, angles):
     import mathutils
     meta = json.loads(arm_ob["g1_rig"])
+    arm_ob.scale = (meta.get("scale", 1.0),) * 3      # optional per-character size about the floor origin
     W = body_poses(angles)
     target = {}   # armature-space matrix per bone
     for pb in arm_ob.pose.bones:   # parents come before children

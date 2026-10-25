@@ -19,6 +19,14 @@ from elf_outfit import OutfitMixin
 
 
 class Elf(HairMixin, OutfitMixin):
+    # A touch taller than the G1 (uniform size about the floor under the pelvis, applied by the runtime and
+    # pose.py from g1_rig.scale) and slimmer about the G1's own bone axes (build.py slim pass), so the joints
+    # never move: fractions of each part's width removed.
+    rig_scale = 1.05
+    slim = dict(torso=0.11, depth=0.04, neck=0.06, arm=0.10, hand=0.04, leg=0.10, foot=0.06)
+    brow_strength = 0.70           # soft, low-contrast brows
+    lip_strength = 0.60            # soft rose lips, close to skin
+
     def __init__(self, W):
         """W: {body name: 4x4 world matrix at the bind pose}."""
         self.W = W
@@ -79,8 +87,33 @@ class Elf(HairMixin, OutfitMixin):
         up = 0.0052 * np.clip(1 - t * t, 0, 1) ** 0.55 - 0.0010 * np.exp(-(q[:, 1] / 0.0035) ** 2)   # cupid's bow
         lo = 0.0062 * np.clip(1 - t * t, 0, 1) ** 0.70
         d = np.maximum(q[:, 2] - up, -lo - q[:, 2])          # < 0 inside vertically
-        w = np.clip(0.5 - d / 0.0016, 0, 1) * np.clip((1.0 - t) / 0.12, 0, 1)
+        w = np.clip(0.5 - d / 0.0030, 0, 1) * np.clip((1.0 - t) / 0.30, 0, 1)   # soft edges, fading corners
         return w * (q[:, 0] > -0.012)
+
+    def face_shade(self, P):
+        """0..1 painted shade that shapes the face (multiplied in by build.py): deep soft sockets around the eyes,
+        a hollow under each cheekbone, a little under the brow ridge and along the jaw."""
+        w = np.zeros(len(P))
+        for s in (1, -1):
+            E, R = self.eyes[s]
+            q = (P - (E + V(-0.001, s * 0.001, 0.0015))) / np.array([0.020, 0.019, 0.0135])
+            w = np.maximum(w, 0.72 * np.exp(-(q * q).sum(1) * 0.75))
+            # soft lash line along the upper lid margin (shape without lash geometry)
+            g = R[:, 0]
+            q = P - E
+            r = np.linalg.norm(q, axis=1) + 1e-9
+            liner = np.clip((0.0034 - (r - self.eye_r)) / 0.0026, 0, 1) * np.clip((q[:, 2] / r + 0.12) / 0.4, 0, 1) * \
+                np.clip(((q @ g) / r - 0.30) / 0.3, 0, 1)
+            w = np.maximum(w, 0.95 * liner)
+            q = (P - V(0.068, s * 0.045, 1.182)) / np.array([0.034, 0.017, 0.013])      # hollow under the cheekbone
+            w = np.maximum(w, 0.70 * np.exp(-(q * q).sum(1) * 0.8))
+            q = (P - V(0.040, s * 0.044, 1.160)) / np.array([0.030, 0.011, 0.012])       # jaw line
+            w = np.maximum(w, 0.40 * np.exp(-(q * q).sum(1) * 0.8))
+        # temples (gentle)
+        for s in (1, -1):
+            q = (P - V(0.050, s * 0.058, 1.240)) / np.array([0.018, 0.010, 0.016])
+            w = np.maximum(w, 0.30 * np.exp(-(q * q).sum(1) * 0.8))
+        return w * (P[:, 2] > 1.12)
 
     def brow_weight(self, P):
         """0..1 soft brow mask over the brow ridge (vertex-color tint; reads as hair, not a strip)."""
@@ -93,11 +126,9 @@ class Elf(HairMixin, OutfitMixin):
             zc = 0.0105 + 0.0040 * np.sin(np.pi * np.clip(t * 1.15, 0, 1)) - 0.0022 * t   # arched, tail drops
             half = 0.0034 * (1 - 0.60 * t) + 0.0008             # thick head, thin tail
             d = np.abs(q[:, 2] - zc) - half
-            core = np.clip(0.6 - d / 0.0010, 0, 1)
-            ends = np.clip((lat + 0.012) / 0.003, 0, 1) * np.clip((0.022 - lat) / 0.004, 0, 1)
-            # hair-like streaks along the brow
-            streak = 0.85 + 0.15 * np.sin(lat * 2600 + q[:, 2] * 900)
-            w = np.maximum(w, core * ends * streak * (q[:, 0] > -0.015))
+            core = np.clip(0.5 - d / 0.0026, 0, 1)            # soft, low-contrast: no hard edge, no streaks
+            ends = np.clip((lat + 0.012) / 0.008, 0, 1) * np.clip((0.022 - lat) / 0.010, 0, 1)
+            w = np.maximum(w, core * ends * (q[:, 0] > -0.015))
         return w
 
     def head(self):
@@ -106,7 +137,7 @@ class Elf(HairMixin, OutfitMixin):
         for s in (1, -1):
             E, _r = self.base.eye(s)
             self.eyes[s] = (E, self.eye_frame(s))
-        base = union(base, *self._lashes(), k=0.0004)
+        # no lash geometry: the lids' own shading carries the eyes (soft, wizard-like face)
         base = union(base, self._ear(1), self._ear(-1), k=0.007)
         return base
 
@@ -183,3 +214,4 @@ class Elf(HairMixin, OutfitMixin):
 
         return custom(fn, root - L - 0.01, root + L + 0.01, mat=M["skin"], part=P_["spine"])
 
+Character = Elf
