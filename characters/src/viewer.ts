@@ -335,8 +335,9 @@ let fighters: Fighter[] = [];
 
 async function main() {
   const [e1, e2] = await Promise.all([
-    CharacterView.load("/elf.glb"),
-    CharacterView.load("/elf.glb", { hue: -2.45 }),
+    // ?p1=knight&p2=elf picks the model per fighter (files in public/<name>.glb)
+    CharacterView.load(`/${new URLSearchParams(location.search).get("p1") ?? "elf"}.glb`),
+    CharacterView.load(`/${new URLSearchParams(location.search).get("p2") ?? "elf"}.glb`, { hue: -2.45 }),
   ]);
   Object.assign(BIND_ANGLES, e1.meta.bind_angles);
   for (const w of e1.warnings) console.warn("[elf.glb]", w);

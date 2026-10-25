@@ -16,7 +16,7 @@ pose_name = args[1] if len(args) > 1 else "guard"
 samples = int(args[2]) if len(args) > 2 else 96
 
 scene = bpy.context.scene
-pose.apply(bpy.data.objects["ElfRig"], pose.POSES[pose_name])
+pose.apply(next(o for o in bpy.data.objects if o.type == "ARMATURE"), pose.POSES[pose_name])
 
 scene.render.engine = "CYCLES"
 try:

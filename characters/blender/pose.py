@@ -82,7 +82,7 @@ if __name__ == "__main__":
 
     names, out = sys.argv[sys.argv.index("--") + 1].split(","), Path(sys.argv[sys.argv.index("--") + 2])
     scene = bpy.context.scene
-    arm = bpy.data.objects["ElfRig"]
+    arm = next(o for o in bpy.data.objects if o.type == "ARMATURE")
     for i, nm in enumerate(names):
         apply(arm, POSES[nm])
         bpy.context.view_layer.update()
