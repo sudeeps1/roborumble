@@ -280,6 +280,8 @@ export class Fighter {
     if (sp) return sp.phase === "approach" ? "approach" : "throw";
     return this.move?.punch?.phase ?? null;
   }
+  /** The kind of the spell in progress (stepping in or casting), or null. */
+  spellKind(): MoveSpec["kind"] | null { return this.stance === "move" ? this.move?.spell?.spec.kind ?? null : null; }
   /** Name of the move or punch in progress. */
   moveName(): string | null { return this.stance === "move" ? this.move?.name ?? null : null; }
   defenseKind(): Defense | null { return this.stance === "defend" ? this.defense?.kind ?? null : null; }

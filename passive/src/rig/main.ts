@@ -8,10 +8,11 @@ import { ATTACKS } from "../core/attacks.ts";
 import type { ArenaEvent, Who } from "../core/events.ts";
 import type { Defense, Fighter, PunchName } from "../core/fighter.ts";
 import { tiltOf } from "../core/math.ts";
-import { ClipSource, LayeredSource, type MotionSource, PlannerSource } from "../core/motion.ts";
+import { type ClipData, ClipSource, LayeredSource, type MotionSource, PlannerSource } from "../core/motion.ts";
 import { HttpPlanner } from "../core/planner.ts";
 import { SonicPolicy } from "../core/sonic.ts";
 import { STYLES, Sparrer } from "../core/spar.ts";
+import { type MoveSpec, checkSpec, specFromLibrary } from "../core/spells.ts";
 import { World } from "../core/world.ts";
 import elfUrl from "@elf-assets/elf.glb?url";
 import knightUrl from "@elf-assets/knight.glb?url";
@@ -24,6 +25,27 @@ const status = document.getElementById("status")!;
 const logEl = document.getElementById("log")!;
 const say = (s: string) => (boot.textContent = s);
 const params = new URLSearchParams(location.search);
+
+// The spell library (public/clips-kimodo/spells.json) and every clip it lists, fetched in parallel
+// while the rest loads. An entry whose spec or clip doesn't load is skipped.
+interface Spell { name: string; kind: string; spec: MoveSpec; qpos: number[][]; fps: number }
+async function loadSpells(base: string): Promise<{ spells: Spell[]; listed: number }> {
+  let lib: unknown;
+  try { lib = await (await fetch(`${base}/spells.json`)).json(); } catch { return { spells: [], listed: 0 }; }
+  if (!Array.isArray(lib)) return { spells: [], listed: 0 };
+  const got = await Promise.all(lib.map(async (e): Promise<Spell | null> => {
+    try {
+      if (!e || typeof e.file !== "string") return null;
+      const spec = specFromLibrary(e);
+      if (!checkSpec(spec)) return null;
+      const clip = (await (await fetch(`${base}/${e.file}`)).json()) as ClipData;
+      if (!Array.isArray(clip?.qpos) || clip.qpos.length < 2) return null;
+      return { name: spec.name, kind: spec.kind, spec, qpos: clip.qpos, fps: Number(clip.fps) > 0 ? Number(clip.fps) : 30 };
+    } catch { return null; }
+  }));
+  return { spells: got.filter((x): x is Spell => x !== null), listed: lib.length };
+}
+const spellsLoading = loadSpells("/clips-kimodo");
 
 // ORT finds its wasm next to its own module (onnxruntime-web is excluded from pre-bundling).
 ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 4);
@@ -74,6 +96,8 @@ say(`Loading the ${picks[0]} and the ${picks[1]}…`);
 const chars = await view.loadCharacters(picks.map((c) => CHARACTERS[c])); // ../characters, rigged to the G1
 const startLook = (params.get("look") as Look) ?? (chars ? "character" : "human");
 view.setLook(startLook);
+view.trackSpells(() => arena.projectiles(), () => arena.time);
+const { spells, listed: spellsListed } = await spellsLoading;
 boot.remove();
 
 // ---------- event log and hit flashes ----------
@@ -82,7 +106,8 @@ const who = (i: Who | null) => (i === null ? "Rig" : NAMES[i]);
 const short = (name: string) => name.replace(/^punch\./, "").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
 function describe(e: ArenaEvent): string | null {
   switch (e.type) {
-    case "hit": return `${who(e.attacker)}: ${short(e.name)} to the ${e.zone}${e.blocked ? ", blocked" : ""}${e.counter ? ", counter" : ""}${e.knockdown ? ", KNOCKDOWN" : ""} (−${e.damage.toFixed(0)} HP)`;
+    case "hit": return `${who(e.attacker)}: ${short(e.name)} to the ${e.zone}${e.blocked ? ", blocked" : ""}${e.clean ? ", clean" : ""}${e.counter ? ", counter" : ""}${e.knockdown ? ", KNOCKDOWN" : ""} (−${e.damage.toFixed(0)} HP)`;
+    case "release": return `${who(e.who)}: ${e.name} ${e.kind === "defend" ? "raised" : "released"}`;
     case "whiff": return e.reason === "interrupted" ? null : `${who(e.attacker)}: ${short(e.name)} ${e.reason === "dodged" ? "dodged" : "missed"}`;
     case "fall": return `${who(e.who)} loses balance`;
     case "down": return `${who(e.who)} is down`;
@@ -96,6 +121,7 @@ function describe(e: ArenaEvent): string | null {
   }
 }
 arena.on((e) => {
+  view.spellEvent(e);
   if (e.type === "spawn") view.charSpawned(e.who);
   if (e.type === "hit") {
     view.charFlash(e.defender);
@@ -147,6 +173,31 @@ const DEFENSE_KEYS: [Defense, string][] = [["block", "Block"], ["duck", "Duck"],
 const defend = (d: Defense) => arena.fighters[target].defend(d);
 group("Target defends", ...DEFENSE_KEYS.map(([d, label]) => button(label, () => defend(d))));
 
+// spells from the library: an attack is cast by the attacker at the target, a defend spell (Earth Wall) by the target
+function castSpell(i: number): boolean {
+  const s = spells[i];
+  if (!s) return false;
+  const f = s.spec.kind === "defend" ? arena.fighters[target] : attacker();
+  const ok = f.cast(s.spec, s.qpos, s.fps);
+  if (ok) view.spellCast(f, s.spec);
+  return ok;
+}
+if (spells.length) {
+  const sel = document.createElement("select");
+  sel.title = "Enter casts the selected spell";
+  spells.forEach((s, i) => sel.add(new Option(`${s.name} (${s.kind})`, String(i))));
+  sel.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault(); e.stopPropagation();
+    castSpell(Number(sel.value));
+  });
+  group("Spells", sel, button("Cast", () => castSpell(Number(sel.value))));
+  const quick = document.createElement("div");
+  quick.className = "row";
+  quick.append(...spells.slice(0, 4).map((s, i) => button(s.name, () => castSpell(i))));
+  panel.append(quick);
+}
+
 // sparring AI: off, boxer, brawler, turtle (?spar=boxer,brawler starts with them on)
 const STYLE_NAMES = ["off", "boxer", "brawler", "turtle"] as const;
 const styleOf = [0, 0];
@@ -154,7 +205,9 @@ const sparButtons = NAMES.map((n, i) => button(`${n}: off`, () => setSpar(i as W
 function setSpar(i: Who, s: number) {
   styleOf[i] = s;
   const name = STYLE_NAMES[s];
-  arena.setBrain(i, name === "off" ? null : new Sparrer(arena.fighters[i], STYLES[name], 11 + 17 * i));
+  const brain = name === "off" ? null : new Sparrer(arena.fighters[i], STYLES[name], 11 + 17 * i);
+  if (brain) brain.spellbook = spells.map((x) => ({ spec: x.spec, qpos: x.qpos, fps: x.fps })); // it casts the library's spells too
+  arena.setBrain(i, brain);
   sparButtons[i].textContent = `${NAMES[i]}: ${name}`;
   sparButtons[i].classList.toggle("on", name !== "off");
 }
@@ -188,6 +241,7 @@ const hint = document.createElement("div");
 hint.className = "hint";
 hint.textContent = (plannerUp ? "Planner: on." : "Planner offline: run `npm run planner` and reload for footwork, punches and natural get-ups.") +
   (clips.size ? ` Clips: ${clips.size} motions.` : "") +
+  ` Spells: ${spells.length}${spellsListed > spells.length ? ` of ${spellsListed} (${spellsListed - spells.length} failed to load)` : ""}.` +
   " Keys: 1-7 hits, J/L jabs, U/O hooks, B block, N duck, arrows slip/step back/jump, T target, K KO, R reset, X hitboxes, Space pause, H hide.";
 panel.append(hint);
 panel.hidden = false;
@@ -196,6 +250,7 @@ logEl.hidden = false;
 
 addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target instanceof HTMLSelectElement) return; // the spell list: arrows and letters pick, Enter casts
   const i = Number(e.key) - 1;
   const k = e.key.toLowerCase();
   if (i >= 0 && i < ATTACKS.length) instant(ATTACKS[i].name);
@@ -266,5 +321,5 @@ function frame(now: number) {
     `apart ${arena.distance().toFixed(2)} m · sim ${arena.time.toFixed(1)} s · ${fps.toFixed(0)} fps · tick ${tickMs.toFixed(1)} ms · SONIC on ${ep}`;
 }
 requestAnimationFrame(frame);
-// debug handle for the console (and for tuning): __rig.arena, __rig.view
-Object.assign(globalThis, { __rig: { arena, view } });
+// debug handle for the console (and for tuning): __rig.arena, __rig.view, __rig.spells, __rig.castSpell(i)
+Object.assign(globalThis, { __rig: { arena, view, spells, castSpell } });

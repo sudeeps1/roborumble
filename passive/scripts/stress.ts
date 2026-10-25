@@ -129,6 +129,7 @@ arena.reset();
 const [A, B] = arena.fighters;
 const styles = Object.values(STYLES);
 const brains = arena.fighters.map((f, i) => new Sparrer(f, styles[i % styles.length], SEED * 31 + i));
+for (const b of brains) b.spellbook = SPELLS;
 arena.setBrain(0, brains[0]); arena.setBrain(1, brains[1]);
 
 // ---------- invariants ----------
@@ -258,7 +259,9 @@ function act() {
   else if (r < 0.0327) {
     did("brains");
     const i = pick([0, 1] as Who[]);
-    arena.setBrain(i, rng.next() < 0.2 ? null : new Sparrer(arena.fighters[i], pick(styles), rng.int()));
+    const b = new Sparrer(arena.fighters[i], pick(styles), rng.int());
+    b.spellbook = SPELLS;
+    arena.setBrain(i, rng.next() < 0.2 ? null : b);
   } else if (r < 0.0329) { did("spawnNaN"); const f = someone(); f.spawn(Number.NaN, Number.POSITIVE_INFINITY, Number.NaN); }
   else if (r < 0.0331) { did("hangAll"); offlineUntil = arena.time + rng.range(5, 9); arena.setMotion(HANG); } // every request hangs
   else if (r < 0.0334) { did("clips"); offlineUntil = arena.time + rng.range(10, 25); arena.setMotion(new LayeredSource(CLIPS, chaos)); } // a clip library in front of the planner
