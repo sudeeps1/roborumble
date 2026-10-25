@@ -40,6 +40,7 @@ async function openForge() {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
     $("cam").srcObject = stream;
     await $("cam").play();
+    $("recBtn").disabled = false;
     hint("Prop your phone up and step back until your whole body glows.");
     loop();
   } catch (err) {
@@ -70,16 +71,34 @@ function loop() {
     if (!landmarker || video.readyState < 2) return;
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
     const now = performance.now();
-    const res = landmarker.detectForVideo(video, now);
+    let res;
+    try { res = landmarker.detectForVideo(video, now); }
+    catch (err) { console.warn("pose detect failed", err); switchToCpu(); return; }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const pts = res.landmarks?.[0], world = res.worldLandmarks?.[0];
-    const full = pts && [11, 12, 15, 16, 23, 24, 27, 28].every((i) => (pts[i].visibility ?? 1) > 0.5);
+    const seen = (ids) => pts && ids.every((i) => (pts[i].visibility ?? 1) > 0.5);
+    const full = seen([11, 12, 15, 16, 23, 24, 27, 28]), upper = seen([11, 12, 15, 16]);
     document.querySelector(".stage").classList.toggle("ready", !!full);
-    if (!recording) $("recBtn").disabled = !full;
+    $("recBtn").disabled = !!recording;
+    if (!recording && !$("stepRecord").classList.contains("hidden")) hint(full ? "✓ I can see all of you. Tap Record, then strike your pose!"
+      : upper ? "Step back a little. I can't see your legs (recording still works)."
+      : pts ? "Step back so your arms and body are in view." : "I can't see you yet. Point the camera at yourself.");
     if (pts) drawPose(ctx, pts, canvas.width, canvas.height, full ? "#7ee0a3" : "#f5d77e");
-    if (recording && world) recording.frames.push(world.map((p) => [round(p.x), round(p.y), round(p.z)]));
+    if (recording && world && upper) recording.frames.push(world.map((p) => [round(p.x), round(p.y), round(p.z)]));
   };
   tick();
+}
+
+let switching = false;
+async function switchToCpu() {
+  if (switching) return;
+  switching = true;
+  try {
+    const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}`);
+    const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/wasm`);
+    landmarker = await vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL, delegate: "CPU" }, runningMode: "VIDEO", numPoses: 1 });
+  } catch (err) { hint(`Body tracking failed on this phone: ${err.message || err}`); }
+  switching = false;
 }
 
 function drawPose(ctx, pts, w, h, color) {
@@ -94,7 +113,7 @@ function drawPose(ctx, pts, w, h, color) {
 // ---------- recording ----------
 async function record() {
   $("recBtn").disabled = true;
-  for (const n of ["3", "2", "1"]) { $("count").className = "count"; $("count").textContent = n; say(n); await sleep(900); }
+  for (const n of ["5", "4", "3", "2", "1"]) { $("count").className = "count"; $("count").textContent = n; say(n); await sleep(900); }
   $("count").textContent = "GO!"; say("Go!");
   recording = { frames: [], start: performance.now() };
   await sleep(350);
