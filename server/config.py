@@ -26,6 +26,12 @@ MIN_GEN_SECONDS = float(_env("MIN_GEN_SECONDS", "0"))
 
 MATCH_THRESHOLD = float(_env("MATCH_THRESHOLD", "0.5"))
 SIGNATURE_THRESHOLD = float(_env("SIGNATURE_THRESHOLD", "0.4"))
+# A shout under MATCH_THRESHOLD becomes a live wildcard only when it is clearly a new idea: at least
+# WILDCARD_MIN_WORDS words and nothing in the library scoring WILDCARD_BELOW. Otherwise it plays the nearest
+# move when that scores NEAR_THRESHOLD, else it counts as silence (a mishearing or someone else talking).
+WILDCARD_MIN_WORDS = int(_env("WILDCARD_MIN_WORDS", "2"))
+WILDCARD_BELOW = float(_env("WILDCARD_BELOW", "0.35"))
+NEAR_THRESHOLD = float(_env("NEAR_THRESHOLD", "0.35"))
 EMBEDDINGS = _env("EMBEDDINGS", "auto")  # auto | off
 
 # Speech to text for POST /voice: "muse" (Meta Muse Voice Transcribe), "whisper" (local), or "none"
