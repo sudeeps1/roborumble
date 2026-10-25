@@ -47,6 +47,7 @@ export interface Impact {
   // set for spells and other server moves (spells.ts): the damage comes from the move's rules
   damage?: number;    // before blocking
   knockdown?: boolean; // the rules say this one knocks down
+  launch?: number;     // N s it throws the defender with when it knocks down (instead of the fighter's knockdown push)
   clean?: boolean;
   how?: string;       // melee, projectile, strike, shockwave
   type?: string;
@@ -298,6 +299,7 @@ export class Combat {
       attacker: a, name: s.name, zone, body, point, dir, speed: 4,
       impulse: 2.2 * damage, poise: damage / 30, counter: d.isCommitted(),
       damage, knockdown: damage >= SPELL.knockdownDamage || (clean && s.power === 3), clean, how, type: s.type, effect: s.effect,
+      launch: how === "strike" ? undefined : SPELL.launch * damage, // a spell that knocks down throws its target (one from above folds it)
     };
   }
 

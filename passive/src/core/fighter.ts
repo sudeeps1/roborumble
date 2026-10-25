@@ -534,9 +534,12 @@ export class Fighter {
     this.poise = Math.max(0, this.poise - poiseHit);
     this.lastHitT = now;
     const knockdown = !blocked && (impulse >= TUNE.knockdownImpulse || this.poise <= 0 || !!imp.knockdown);
-    if (knockdown) impulse = Math.min(impulse, TUNE.knockdownPush);
+    // a knockdown folds the fighter where it stands, unless the hit throws it (a spell's launch: back and up)
+    const launch = knockdown && Number.isFinite(imp.launch) && imp.launch! > 0;
+    if (knockdown) impulse = launch ? Math.min(imp.launch!, TUNE.maxImpulse) : Math.min(impulse, TUNE.knockdownPush);
     const force = impulse / TUNE.pulse;
-    this.pulses.push({ body, local: this.world.toLocal(body, imp.point), force: [dir[0] * force, dir[1] * force, dir[2] * force], left: TUNE.pulse });
+    const pd = launch ? (() => { const v = [dir[0], dir[1], dir[2] + SPELL.launchLift], n = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / n, v[1] / n, v[2] / n]; })() : dir;
+    this.pulses.push({ body, local: this.world.toLocal(body, imp.point), force: [pd[0] * force, pd[1] * force, pd[2] * force], left: TUNE.pulse });
     if (this.pulses.length > 6) this.pulses.shift();
     this.lastEvent = `${blocked ? "blocked " : ""}${imp.name} to the ${imp.zone} (${impulse.toFixed(0)} N s)`;
     const res: HitResult = { landed: true, blocked, knockdown };
