@@ -401,14 +401,14 @@
       const src = ctx.createMediaStreamSource(s);
       const node = ctx.createScriptProcessor(2048, 1, 1);
       const sr = ctx.sampleRate, frameMs = (2048 / sr) * 1000;
-      let floor = 0.01, chunks = [], pre = [], peak = 0, heardMs = 0, quietMs = 0, listenMs = 0;
+      let floor = 0.01, chunks = [], pre = [], peak = 0, heardMs = 0, quietMs = 0, listenMs = 0, firstLoud = -1;
       sendClip = () => {
-        const c = chunks, heard = heardMs > 120;
-        chunks = []; armed = false; heardMs = quietMs = listenMs = 0;
+        // always send (Muse decides what was said), from just before the voice started: a shorter clip transcribes faster
+        const c = firstLoud >= 0 ? chunks.slice(Math.max(0, firstLoud - 6)) : chunks, long = listenMs > 350;
+        chunks = []; armed = false; heardMs = quietMs = listenMs = 0; firstLoud = -1;
         clearTimeout(armTimer);
         setMic("on");
-        if (heard && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(c, sr));
-        else $("micSub").textContent = "Didn't catch that. Tap and shout again";
+        if (long && !window.IF_forging) { $("micSub").textContent = "Sending…"; cast("", Math.min(1, peak * 6), wav(c, sr)); }
       };
       node.onaudioprocess = (e) => {
         lastAudio = Date.now();
@@ -417,11 +417,12 @@
         let sum = 0; for (let i = 0; i < x.length; i++) sum += x[i] * x[i];
         const rms = Math.sqrt(sum / x.length);
         if (!armed) { floor = 0.95 * floor + 0.05 * rms; pre.push(x); if (pre.length > 6) pre.shift(); return; }
-        if (!chunks.length) { chunks = [...pre]; peak = 0; heardMs = quietMs = listenMs = 0; }
+        if (!chunks.length) { chunks = [...pre]; peak = 0; heardMs = quietMs = listenMs = 0; firstLoud = -1; }
         chunks.push(x); listenMs += frameMs; peak = Math.max(peak, rms);
-        if (rms > Math.max(0.02, floor * 2.5)) { heardMs += frameMs; quietMs = 0; } else if (heardMs) quietMs += frameMs;
-        // done: the spell, then a short pause (or 5 s at most)
-        if ((heardMs > 120 && quietMs > 700) || listenMs > 5000) sendClip();
+        if (rms > Math.max(0.012, floor * 2)) { if (firstLoud < 0) firstLoud = chunks.length - 1; heardMs += frameMs; quietMs = 0; }
+        else if (heardMs) quietMs += frameMs;
+        // done: the spell, then a short pause (or 4 s at most)
+        if ((heardMs > 100 && quietMs > 450) || listenMs > 4000) sendClip();
       };
       src.connect(node); node.connect(ctx.destination);
       setMic("on");
