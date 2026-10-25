@@ -401,6 +401,7 @@
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     ctx.resume();  // inside the tap, so iOS lets it run
     let paused = false, stopped = false, stream = null, track = null, lastAudio = Date.now();
+    let sendClip = () => 0;  // set once the mic is running: sends what was said while the orb was held
     const askedAt = Date.now();
     navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then((s) => {
       if (stopped) return s.getTracks().forEach((t) => t.stop());
@@ -408,7 +409,12 @@
       const src = ctx.createMediaStreamSource(s);
       const node = ctx.createScriptProcessor(2048, 1, 1);
       const sr = ctx.sampleRate, frameMs = (2048 / sr) * 1000;
-      let floor = 0.01, speaking = false, chunks = [], pre = [], silentMs = 0, spokenMs = 0, peak = 0;
+      let speaking = false, chunks = [], pre = [], peak = 0;
+      sendClip = () => {
+        const c = chunks; chunks = []; speaking = false;
+        if (c.length * frameMs > 350 && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(c, sr));
+        return c.length;
+      };
       node.onaudioprocess = (e) => {
         lastAudio = Date.now();
         if (paused) return;
@@ -427,11 +433,7 @@
     return {
       pause: () => { paused = true; },
       // let go of the orb: send what was said while it was held (a quick tap sends nothing)
-      release: () => {
-        const c = chunks; chunks = []; speaking = false;
-        if (c.length * frameMs > 350 && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(c, sr));
-        return c.length;
-      },
+      release: () => sendClip(),
       resume: () => { paused = false; ctx.resume(); },
       stop: () => { stopped = paused = true; stream?.getTracks().forEach((t) => t.stop()); try { ctx.close().catch(() => {}); } catch {} },
       wake: () => { if (ctx.state !== "running") ctx.resume().catch(() => {}); },
