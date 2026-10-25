@@ -75,6 +75,13 @@ export const TUNE = {
   koSlump: 1.2,       // s a KO'd body folds before it goes limp
   maxClip: 5,         // s, longest clip playMove accepts
   reanchor: 0.25,     // m the motion may drift from the body before it is moved back
+  // Guard tuck: joint offsets (rad, MuJoCo signs) added to the motion's arms while idle, staggered
+  // or defending, eased in and out over `ease` s (see updateOverlays). The planner's guard flares
+  // the elbows (0.39 m apart) with the gloves touching (0.09 m). Shoulder roll pulls the elbows in
+  // to the ribs (~0.30 m apart), shoulder yaw turns the forearms out so the gloves part (~0.2 m) at
+  // the cheeks. Uneven left/right because the planner's orthodox stance sits the whole guard to the
+  // right of the face. (Lowering them with shoulder pitch let a hook through the block: don't.)
+  guardTuck: { ease: 0.2, joints: { shRollL: -0.35, shRollR: 0.55, shYawL: 0.5, shYawR: -0.2 } as Partial<Record<keyof typeof J, number>> },
 };
 
 // Arms forward and knees soft: what the robot reaches for while it goes down.
@@ -91,7 +98,7 @@ CRUMPLE[15] = CRUMPLE[22] = -0.6; CRUMPLE[18] = CRUMPLE[25] = 0.9;
 
 // Joint indices (MuJoCo order) used by overlays. Hip pitch negative and knee positive bend the
 // legs; shoulder pitch negative raises the arm forward; elbow negative bends it further.
-const J = { hipL: 0, kneeL: 3, ankleL: 4, hipR: 6, kneeR: 9, ankleR: 10, shPitchL: 15, shRollL: 16, elbowL: 18, shPitchR: 22, shRollR: 23, elbowR: 25 };
+const J = { hipL: 0, kneeL: 3, ankleL: 4, hipR: 6, kneeR: 9, ankleR: 10, shPitchL: 15, shRollL: 16, shYawL: 17, elbowL: 18, shPitchR: 22, shRollR: 23, shYawR: 24, elbowR: 25 };
 
 /** An overlay: a tilt of the whole reference body and/or joint offsets, shaped attack-hold-release. */
 interface Effect { tag: "defense" | "flinch"; t: number; dur: number; attack: number; release: number; tilt?: { axis: number[]; angle: number }; joints?: Float64Array }
@@ -165,6 +172,8 @@ export class Fighter {
   private hist: Frame[] = [];
   private pulses: Pulse[] = [];
   private effects: Effect[] = [];
+  /** 0..1, how much of TUNE.guardTuck is on (see updateOverlays). */
+  private tuck = 0;
   private lastHitT = -Infinity;
   private graceUntil = 0;
   private staggerFor = 0;
@@ -210,7 +219,7 @@ export class Fighter {
     this.ctl.worldHeading();
     this.body.invalidate();
     this.combat.disarm(this, "interrupted", true);
-    this.pulses = []; this.hist = []; this.effects = [];
+    this.pulses = []; this.hist = []; this.effects = []; this.tuck = 0;
     this.inflight = null; this.move = null; this.defense = null;
     this.poise = 1; this.lastHitT = -Infinity;
     this.graceUntil = this.clock() + (Number.isFinite(grace) ? Math.max(0, grace) : 0);
@@ -503,7 +512,7 @@ export class Fighter {
   private restartFromPose() {
     this.gen++; this.inflight = null;
     this.epoch++;
-    this.pulses = []; this.hist = []; this.effects = [];
+    this.pulses = []; this.hist = []; this.effects = []; this.tuck = 0;
     this.body.invalidate();
     this.combat.disarm(this, "interrupted", true);
     const pose = this.world.robotQpos(this.robot);
@@ -1088,6 +1097,12 @@ export class Fighter {
       if (e.joints) for (let j = 0; j < NJ; j++) oj[j] += e.joints[j] * w;
       if (e.tilt) quat = qmul(axisAngleQuat(e.tilt.axis[0], e.tilt.axis[1], e.tilt.axis[2], e.tilt.angle * w), quat);
     }
+    // Guard tuck (TUNE.guardTuck), added on top of the effects: eases in while boxing in place
+    // (idle, stagger, defend), eases out once a move starts (punches and clips keep their own arms),
+    // off at once on the way down, on the floor, getting up or KO'd.
+    const g = TUNE.guardTuck, guarding = this.stance === "idle" || this.stance === "stagger" || this.stance === "defend";
+    this.tuck = guarding || this.stance === "move" ? clamp(this.tuck + (guarding ? dt : -dt) / Math.max(g.ease, dt), 0, 1) : 0;
+    if (this.tuck > 0) for (const [k, v] of Object.entries(g.joints)) oj[J[k as keyof typeof J]] += (v ?? 0) * this.tuck;
     this.ctl.overlayQuat = quat;
   }
 
