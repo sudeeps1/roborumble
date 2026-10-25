@@ -250,7 +250,29 @@ export class Screens {
     empty.append(art(PHONE, "ico"), et);
     plate.append(emblem, text, empty);
     root.append(plate, h("div", "seat-pointer"));
+    // People click "Scan to join": show a big QR code for that seat (and a link to join from this computer).
+    plate.addEventListener("click", () => { if (!root.classList.contains("filled")) this.showJoin(p); });
     return { root, emblem, nick, who, dot, charId: "", filled: null };
+  }
+
+  private showJoin(p: Player) {
+    const url = this.lobby?.qrUrl;
+    if (!url) return;
+    const modal = h("div", "join-modal");
+    const box = h("div", "join-box parch");
+    const qr = document.createElement("canvas");
+    const here = h("div", "join-here", "or open it on this computer");
+    box.append(h("div", "join-title", `Player ${p}: scan with your phone camera`), qr,
+      h("div", "join-url", url.replace(/^https?:\/\//, "")), here, h("div", "join-close", "click anywhere to close"));
+    modal.append(box);
+    const close = () => { modal.remove(); removeEventListener("keydown", onKey); };
+    const onKey = (e: KeyboardEvent) => { if (e.code === "Escape") close(); };
+    modal.addEventListener("click", close);
+    here.addEventListener("click", (e) => { e.stopPropagation(); window.open(url, "_blank"); close(); });
+    addEventListener("keydown", onKey);
+    this.root.append(modal);
+    void toCanvas(qr, url, { margin: 1, scale: 12, errorCorrectionLevel: "M", color: { dark: "#2b1d0eff", light: "#f8efd8ff" } })
+      .then(() => { qr.style.width = ""; qr.style.height = ""; });
   }
 
   private updateLobby(info: LobbyInfo) {
