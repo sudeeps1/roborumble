@@ -34,6 +34,10 @@ export class View {
   private chars: CharacterView[] = [];
   private charBodies: Map<string, { pos: ArrayLike<number>; quat: ArrayLike<number> }>[] = [];
   private studio: THREE.Texture | null = null;
+  private hemi = new THREE.HemisphereLight(0xdfe6ff, 0x30281f, 1.1);
+  private sun = new THREE.DirectionalLight(0xffffff, 2.2);
+  private studioLights = new THREE.Group();
+  private floorMat = new THREE.MeshStandardMaterial({ color: 0x252a33, roughness: 0.95 });
   private look: Look = "human";
   private boxes: Box[] = [];
   private hitboxes: { combat: Combat; time: () => number } | null = null;
@@ -59,16 +63,26 @@ export class View {
     this.controls.enableDamping = true;
     this.controls.update();
 
-    this.scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x30281f, 1.1));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    this.scene.add(this.hemi);
+    const sun = this.sun;
     sun.position.set(2.5, -3, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera as THREE.OrthographicCamera;
     sc.left = sc.bottom = -4; sc.right = sc.top = 4; sc.near = 1; sc.far = 15;
     this.scene.add(sun);
+    // the characters' studio rig (their viewer's): a cool fill from camera-left and two cool rims
+    // from behind, so dark armour and hair read against the background. On in the character look.
+    for (const [color, intensity, x, y, z] of [[0xa9c0ff, 0.55, -3.0, -2.6, 1.5], [0x86b4ff, 2.3, -2.6, 3.2, 2.6], [0xa6a0ff, 1.8, 2.8, 2.6, 2.2]]) {
+      const l = new THREE.DirectionalLight(color, intensity);
+      l.position.set(x, y, z);
+      l.target.position.set(0, 0, 0.9);
+      this.studioLights.add(l, l.target);
+    }
+    this.studioLights.visible = false;
+    this.scene.add(this.studioLights);
 
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(RING_RADIUS + 1.2, 96), new THREE.MeshStandardMaterial({ color: 0x252a33, roughness: 0.95 }));
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(RING_RADIUS + 1.2, 96), this.floorMat);
     floor.receiveShadow = true;
     this.scene.add(floor);
     const ring = new THREE.Mesh(new THREE.RingGeometry(RING_RADIUS - 0.03, RING_RADIUS + 0.03, 128), new THREE.MeshBasicMaterial({ color: 0xf0a63c }));
@@ -167,6 +181,18 @@ export class View {
     this.renderer.toneMapping = chars ? THREE.AgXToneMapping : THREE.NoToneMapping;
     this.renderer.toneMappingExposure = chars ? 1.15 : 1;
     this.scene.environment = chars ? this.studio : null;
+    // their light: a warm key (the sun), cool fill and rims, and only a faint warm bounce from the floor
+    this.studioLights.visible = chars;
+    this.sun.color.setHex(chars ? 0xffdcbc : 0xffffff);
+    this.sun.intensity = chars ? 3.1 : 2.2;
+    this.hemi.color.setHex(chars ? 0x000000 : 0xdfe6ff);
+    this.hemi.groundColor.setHex(chars ? 0x3a2a1e : 0x30281f);
+    this.hemi.intensity = chars ? 0.35 : 1.1;
+    this.hemi.position.set(0, chars ? 0 : 1, chars ? 1 : 0); // Z is up here (the robot looks keep their old light)
+    // the floor barely reflects the studio, so it stays dark and the fighters stand out
+    this.floorMat.envMap = chars ? this.studio : null;
+    this.floorMat.envMapIntensity = 0.05;
+    this.floorMat.needsUpdate = true;
     this.scene.environmentIntensity = 0.5;
     this.scene.environmentRotation.set(Math.PI / 2, 0, 0);
     for (const { obj } of this.geoms) obj.visible = look === "robot" || look === "both";

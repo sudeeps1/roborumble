@@ -11,14 +11,18 @@ knees. A KO stays down. A sparring AI can drive either fighter.
 
 ```
 npm install
-npm run setup            # G1 model + meshes (18 MB), SONIC controller (91 MB)
-npm run setup:planner    # SONIC kinematic planner (774 MB), once
-npm run planner          # terminal 1: planner service on :8787
-npm run dev              # terminal 2: open http://localhost:5180
+npm run setup            # once: G1 model + meshes (18 MB), SONIC controller (91 MB)
+npm run setup:planner    # once: SONIC kinematic planner (774 MB)
+npm start                # the planner service, then the rig: open http://localhost:5180
 ```
 
-Without the planner running, the robots just hold a standing guard, can't throw planner punches,
-and get-ups fall back to the assisted lift. `?ep=webgpu` runs SONIC on the GPU instead of wasm.
+`npm start` starts the planner (port 8787, or `PLANNER_PORT`), waits until it answers, then starts
+the rig. A planner that's already running on that port is reused. Ctrl-C stops both. To run them
+separately: `npm run planner` in one terminal and `npm run dev` in another.
+
+Without the planner, the robots just hold a standing guard, can't throw planner punches, and
+get-ups fall back to the assisted lift. `npm start` says so and starts the rig anyway.
+`?ep=webgpu` runs SONIC on the GPU instead of wasm.
 
 ### Rig controls
 - **Target** picks who gets hit and who defends (the elf or the knight). The other fighter throws.

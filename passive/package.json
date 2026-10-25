@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "start": "node scripts/start.mjs",
     "setup": "node scripts/fetch-assets.mjs",
     "setup:planner": "node scripts/fetch-assets.mjs --planner",
     "dev": "vite",
