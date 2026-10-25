@@ -24,7 +24,7 @@ from .engine import make_engine
 from .g1 import joint_limits
 from .jobs import AGENT, LIVE, Job, JobQueue
 from .library import MOVE_TYPES, Library
-from .matcher import Matcher
+from .matcher import Matcher, clean
 from .narrator import Narrator
 from .rooms import Hub
 
@@ -227,7 +227,12 @@ async def shout(code: str, player: int, text: str, loudness: float) -> dict[str,
     else:
         move_id, score = matcher.best(text)
         if not (move_id and score >= config.MATCH_THRESHOLD):
-            move_id = None
+            # a miss: a new spell only when it's clearly one; a near miss is most likely a mishearing
+            words = len(clean(text).split())
+            if words >= config.WILDCARD_MIN_WORDS and score < config.WILDCARD_BELOW:
+                return await _wildcard(code, player, text, loudness, nickname)
+            if not (move_id and score >= config.NEAR_THRESHOLD):
+                return {"result": "silence", "transcript": text, "score": round(score, 3)}
     if move_id:
         move = library.get(move_id)
         move["signature"] = signature

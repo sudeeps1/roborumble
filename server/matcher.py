@@ -74,16 +74,29 @@ class Matcher:
                 rows = list(rows)
                 qv = self._embed([q])[0]
                 sims = self.vecs[rows] @ qv
-                # an exact name or alias inside the shout always wins
-                for k, i in enumerate(rows):
-                    if self.texts[i] and f" {self.texts[i]} " in f" {q} ":
-                        sims[k] = max(sims[k], 0.99)
+                inside = self._inside(q, rows)
+                if inside is not None:
+                    return inside
                 k = int(sims.argmax())
                 return self.ids[rows[k]], float(sims[k])
+            inside = self._inside(q, rows)
+            if inside is not None:
+                return inside
             best_i, best_s = -1, 0.0
             for i in rows:
-                t = self.texts[i]
-                s = 0.99 if f" {t} " in f" {q} " else difflib.SequenceMatcher(None, q, t).ratio()
+                s = difflib.SequenceMatcher(None, q, self.texts[i]).ratio()
                 if s > best_s:
                     best_i, best_s = i, s
             return (self.ids[best_i], best_s) if best_i >= 0 else (None, 0.0)
+
+    def _inside(self, q: str, rows: Iterable[int]) -> tuple[str, float] | None:
+        """A name or alias said inside the shout wins, the longest one when several are ("throw a fireball"
+        is Fireball, not Throw). The whole shout being the name scores 1.0."""
+        best_i = -1
+        for i in rows:
+            t = self.texts[i]
+            if t and f" {t} " in f" {q} " and (best_i < 0 or len(t) > len(self.texts[best_i])):
+                best_i = i
+        if best_i < 0:
+            return None
+        return self.ids[best_i], 1.0 if self.texts[best_i] == q else 0.99
