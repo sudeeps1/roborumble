@@ -35,9 +35,14 @@ MUSE_API_KEY = _env("MUSE_API_KEY", "")
 MUSE_URL = _env("MUSE_URL", "")
 WHISPER_MODEL = _env("WHISPER_MODEL", "small.en")
 
-# Claude for live wildcard specs and the narrator. Off without credentials; keyword fallbacks take over.
+# Claude for live wildcard specs. Off without credentials; keyword fallbacks take over.
 CLAUDE = _env("CLAUDE", "auto")  # auto | off
 CLAUDE_MODEL = "claude-opus-5-5"
+
+# Spending caps (pay-as-you-go keys). Past a cap the server falls back to the free path instead of calling
+# the API: keyword wildcard specs, or the phone's own speech recognition. Counts reset when the server restarts.
+MAX_CLAUDE_CALLS = int(_env("MAX_CLAUDE_CALLS", "150"))        # live wildcard specs (~1-2 cents each)
+MAX_STT_MINUTES = float(_env("MAX_STT_MINUTES", "60"))         # Muse audio minutes (~$0.18 per hour)
 
 # Static apps served by this process (Caddy can serve them instead in production).
 CLIENT_DIST = Path(_env("CLIENT_DIST", str(ROOT / "client" / "dist")))

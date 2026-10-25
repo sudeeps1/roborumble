@@ -26,8 +26,11 @@ except Exception as e:  # pydantic missing etc.
 _client = None
 
 
+usage = {"claude_calls": 0}
+
+
 def claude_enabled() -> bool:
-    if config.CLAUDE == "off" or agent_specs is None:
+    if config.CLAUDE == "off" or agent_specs is None or usage["claude_calls"] >= config.MAX_CLAUDE_CALLS:
         return False
     if config.CLAUDE == "on":
         return True
@@ -49,6 +52,7 @@ their words, so it feels like their invention. Aliases include their exact words
 
 
 def claude_spec(text: str) -> dict[str, Any] | None:
+    usage["claude_calls"] += 1
     try:
         msg = _get_client().with_options(timeout=12.0, max_retries=0).beta.messages.create(
             model=config.CLAUDE_MODEL,

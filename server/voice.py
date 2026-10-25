@@ -47,9 +47,22 @@ def to_wav16k(data: bytes) -> bytes:
             return f.read()
 
 
+usage = {"stt_seconds": 0.0}
+
+
+def stt_available() -> bool:
+    return config.STT != "none" and usage["stt_seconds"] < config.MAX_STT_MINUTES * 60
+
+
 def transcribe(data: bytes, hint_words: list[str] | None = None) -> str:
     if config.STT == "muse":
-        return _muse(to_wav16k(data))
+        if not stt_available():
+            raise SttError("voice budget used up for this server run; phones switch to their own speech recognition")
+        wav = to_wav16k(data)
+        if len(wav) > 16000 * 2 * 6 + 44:  # longer than 6 s is noise, not a spell: don't pay for it
+            raise SttError("clip too long")
+        usage["stt_seconds"] += (len(wav) - 44) / (16000 * 2)
+        return _muse(wav)
     if config.STT == "whisper":
         return _whisper_text(data, hint_words)
     raise SttError("STT is off on this server; send `transcript` with the request")

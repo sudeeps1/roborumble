@@ -113,6 +113,11 @@
     try {
       const r = await fetch(`${API}/voice`, { method: "POST", body: fd });
       const out = await r.json().catch(() => ({}));
+      if (audio && r.status === 503) { // server voice is off or its budget is used up: use the phone's own
+        stt = "none"; listener?.pause(); listener = null; setMic("blocked");
+        $("micSub").textContent = "Tap once to switch to your phone's own voice recognition";
+        return;
+      }
       if (!r.ok) throw new Error(out.detail || `server said ${r.status}`);
       onResult(out);
     } catch (err) {

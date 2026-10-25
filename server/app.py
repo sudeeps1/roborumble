@@ -67,8 +67,11 @@ def health() -> dict[str, Any]:
         "ok": True, "engine": engine.name, "model": config.KIMODO_MODEL if engine.name == "kimodo" else "mock",
         "load_ms": round(getattr(engine, "load_ms", 0)), "last_generation_ms": round(engine.last_ms),
         "queue": jobs.queue_length(), "jobs": jobs.counts, "library": library.stats()["total"],
-        "idle_ready": library.has_motion("mo_idle"), "matcher": matcher.backend, "stt": config.STT,
-        "claude": wildcard.claude_enabled(), "uptime_s": round(time.time() - started),
+        "idle_ready": library.has_motion("mo_idle"), "matcher": matcher.backend,
+        "stt": config.STT if voice.stt_available() else "none", "claude": wildcard.claude_enabled(),
+        "spend": {"claude_calls": wildcard.usage["claude_calls"], "claude_cap": config.MAX_CLAUDE_CALLS,
+                  "stt_minutes": round(voice.usage["stt_seconds"] / 60, 2), "stt_cap_minutes": config.MAX_STT_MINUTES},
+        "uptime_s": round(time.time() - started),
         "steps": {"agent": config.DIFFUSION_STEPS, "live": config.LIVE_DIFFUSION_STEPS},
     }
 
