@@ -75,7 +75,8 @@ class GameServer:
         self.opener = urllib.request.build_opener(*handlers)
 
     def _call(self, method, path, body=None, timeout=None):
-        headers = {"Accept": "application/json"}
+        # RunPod's HTTPS proxy answers 403 to urllib's default "Python-urllib/3.x" user agent.
+        headers = {"Accept": "application/json", "User-Agent": "InfiniteFighterAgent/1.0"}
         data = None
         if body is not None:
             data = json.dumps(body).encode("utf-8")
