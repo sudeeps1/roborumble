@@ -23,7 +23,7 @@ import { DEFAULT_ANGLES, NJ } from "./g1.ts";
 import { axisAngleQuat, clamp, dist2, finite3, qmul, tiltOf, yawOf } from "./math.ts";
 import type { MotionAsk, MotionClip, MotionName, MotionSource, StrikeWindow } from "./motion.ts";
 import { contextFromReference } from "./planner.ts";
-import { type Frame, REF_HZ, Reference, type Snap, copyFrame, mixFrames, poseFrame, resample, sanitizeFrames, snapArms, waistToHips } from "./reference.ts";
+import { type Frame, REF_HZ, Reference, type Snap, type Squat, copyFrame, deepenSquat, mixFrames, poseFrame, resample, sanitizeFrames, snapArms, waistToHips } from "./reference.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SonicController, type SonicPolicy } from "./sonic.ts";
 import { type MoveSpec, SPELL, checkSpec } from "./spells.ts";
@@ -67,9 +67,13 @@ export const TUNE = {
   punchRange: { "punch.leftJab": 0.66, "punch.rightJab": 0.66, "punch.leftHook": 0.72, "punch.rightHook": 0.72 } as Record<PunchName, number>,
   approachTime: 2.4,  // s of stepping in before throwing anyway (time spent waiting on a late plan does not count)
   // spells' fast arm moves exaggerated so SONIC's strike comes closer to the clip's speed (snapArms;
-  // s 1 turns it off). Spiral Sphere's hand peak 2.4 -> 3.3 m/s (clip 6.0), Fireball and Earth Wall
-  // a little faster, Thunder Call unchanged; average hand error the same, nobody falls.
+  // s 1 turns it off). Spiral Sphere's thrust 2.4 -> 3.1 m/s (clip 3.4), Fireball and Earth Wall a
+  // little faster, Thunder Call unchanged (its elbow is held back by SONIC's short target lead, not
+  // the reference); average hand error the same, nobody falls.
   spellSnap: { s: 1.5, thr: 0.35, sigma: 2, gain: 1.5, wrist: 0.3 } as Snap,
+  // spells' deep crouches bent further so SONIC reaches their depth (deepenSquat): Earth Wall's pelvis
+  // bottoms within ~1 cm of the clip's 0.54 m instead of 7-8 cm above; moves above 0.69 m untouched
+  spellSquat: { gain: 2.66, below: 0.69 } as Squat,
   punchRecover: 0.35, // s after the strike window before footwork takes over again
   knockdownImpulse: 55, knockdownPush: 30, pulse: 0.08, maxImpulse: 150,
   poiseRegen: 0.2, poiseDelay: 2,  // balance comes back at 0.2/s once 2 s pass without a hit
@@ -396,7 +400,8 @@ export class Fighter {
     this.gen++; this.inflight = null; // drop a stepping-in answer still coming
     const start = this.startFrame();
     this.raw.splice(sp.frames.map(copyFrame), start, 8);
-    this.ref.splice(waistToHips(snapArms(sp.frames.map(copyFrame), TUNE.spellSnap, this.robot.lo, this.robot.hi)), start, 8);
+    const { lo, hi } = this.robot;
+    this.ref.splice(deepenSquat(waistToHips(snapArms(sp.frames.map(copyFrame), TUNE.spellSnap, lo, hi)), TUNE.spellSquat, lo, hi), start, 8);
     const t0 = this.timeOfFrame(start);
     const o = this.world.rootPos(this.opponent.robot);
     this.combat.cast(this, this.opponent, sp.spec, t0 + sp.hitT, [o[0], o[1]]);

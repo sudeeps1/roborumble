@@ -180,6 +180,27 @@ export function waistToHips(frames: Frame[], k = 1, extra = FORWARD_LEAN): Frame
   return frames;
 }
 
+/** How deepenSquat bends the legs (see there). */
+export interface Squat { gain: number; below: number }
+
+/**
+ * SONIC stops a deep crouch short (Earth Wall's pelvis bottomed 7-8 cm above the clip's): where a
+ * frame's pelvis is lower than `below` (m), the knees bend gain * (below - height) rad more and the
+ * hips and ankles take half each back, so the feet stay flat and the torso keeps its lean. Moves
+ * near standing height are untouched. Joints stay in [lo, hi].
+ */
+export function deepenSquat(frames: Frame[], k: Squat, lo: ArrayLike<number>, hi: ArrayLike<number>): Frame[] {
+  const KNEE = [3, 9], HIP = [0, 6], ANKLE = [4, 10];
+  for (const f of frames) {
+    const x = k.gain * Math.max(0, k.below - f[2]);
+    if (!(x > 0)) continue;
+    for (let s = 0; s < 2; s++) {
+      for (const [j, d] of [[KNEE[s], x], [HIP[s], -x / 2], [ANKLE[s], -x / 2]]) f[7 + j] = Math.min(hi[j], Math.max(lo[j], f[7 + j] + d));
+    }
+  }
+  return frames;
+}
+
 /** How snapArms exaggerates a move's fast arm motion (see there). */
 export interface Snap { s: number; thr: number; sigma: number; gain: number; wrist: number }
 
