@@ -15,7 +15,8 @@
     "fight-check": "node scripts/fight-check.ts",
     "stress": "node scripts/stress.ts",
     "spell-check": "node scripts/spell-check.ts",
-    "spell-batch": "node scripts/spell-batch.ts"
+    "spell-batch": "node scripts/spell-batch.ts",
+    "sync:spells": "node scripts/spell-sync.ts"
   },
   "dependencies": {
     "@mujoco/mujoco": "3.17.0",
