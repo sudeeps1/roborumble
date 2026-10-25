@@ -20,14 +20,21 @@ $("forgeOpen").onclick = openForge;
 $("forgeClose").onclick = closeForge;
 $("recBtn").onclick = record;
 $("redoRec").onclick = () => step("record");
-$("redoAll").onclick = () => { recorded = null; step("record"); };
+$("redoAll").onclick = async () => { recorded = null; step("record"); await startCamera(); };
 $("forgeBtn").onclick = forgeIt;
 $("keepBtn").onclick = keep;
 
 async function openForge() {
   window.IF_forging = true;
+  IF().pauseMic?.();
   $("forge").classList.remove("hidden");
+  recorded = null;
   step("record");
+  await startCamera();
+}
+
+async function startCamera() {
+  $("recBtn").disabled = true;
   hint("Waking the forge…");
   try {
     if (!landmarker) {
@@ -37,14 +44,17 @@ async function openForge() {
       landmarker = await vision.PoseLandmarker.createFromOptions(files, opts("GPU"))
         .catch(() => vision.PoseLandmarker.createFromOptions(files, opts("CPU")));
     }
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
-    $("cam").srcObject = stream;
+    if (!stream) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+      $("cam").srcObject = stream;
+    }
     await $("cam").play();
+    if ($("forge").classList.contains("hidden")) return closeForge(); // closed while loading
     $("recBtn").disabled = false;
     hint("Prop your phone up and step back until your whole body glows.");
     loop();
   } catch (err) {
-    hint(`The forge can't see you: ${err.message || err}. Allow the camera and try again.`);
+    hint(`The forge can't see you: ${err.message || err}. Allow the camera, then close and reopen the forge.`);
   }
 }
 
@@ -54,6 +64,7 @@ function closeForge() {
   stream = null; recording = null;
   $("forge").classList.add("hidden");
   window.IF_forging = false;
+  IF().resumeMic?.();
 }
 
 function step(which) {
@@ -113,7 +124,10 @@ function drawPose(ctx, pts, w, h, color) {
 // ---------- recording ----------
 async function record() {
   $("recBtn").disabled = true;
-  for (const n of ["5", "4", "3", "2", "1"]) { $("count").className = "count"; $("count").textContent = n; say(n); await sleep(900); }
+  for (const n of ["5", "4", "3", "2", "1"]) {
+    if ($("forge").classList.contains("hidden")) return;
+    $("count").className = "count"; $("count").textContent = n; say(n); await sleep(900);
+  }
   $("count").textContent = "GO!"; say("Go!");
   recording = { frames: [], start: performance.now() };
   await sleep(350);
@@ -124,6 +138,7 @@ async function record() {
     await sleep(100);
   }
   const r = recording; recording = null;
+  if ($("forge").classList.contains("hidden")) return;
   $("count").className = "count"; $("count").textContent = "";
   const secs = (performance.now() - r.start) / 1000;
   if (r.frames.length < 20) { hint("The forge lost sight of you. Step back so your whole body fits, then try again."); $("recBtn").disabled = false; return; }

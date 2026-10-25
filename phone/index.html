@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <div class="sky"></div>
@@ -33,28 +33,36 @@
     <header class="top">
       <div>
         <div class="who" id="who">Pip</div>
-        <div class="seat" id="seat">Joining…</div>
+        <div class="seat"><span class="dot" id="dot"></span><span id="seat">Joining…</span></div>
       </div>
-      <div class="roomtag">Room <b id="roomCode">ABCD</b></div>
+      <button class="roomtag" id="leave" title="Leave this room">Room <b id="roomCode">ABCD</b> <span class="leave">✕</span></button>
     </header>
 
-    <div class="bars">
-      <div class="bar"><span>Life</span><i id="hp"></i></div>
-      <div class="bar energy"><span>Energy</span><i id="en"></i></div>
+    <div class="duel hidden" id="duel">
+      <div class="duel-top"><span id="round">Round 1</span><span id="wins"></span><span class="timer" id="timer">60</span></div>
+      <div class="bar"><span>Life <b id="hpN"></b></span><i id="hp"></i></div>
+      <div class="bar energy"><span>Energy <b id="enN"></b></span><i id="en"></i></div>
     </div>
+    <div class="waiting" id="waiting">Waiting for the duel to begin on the big screen… you can still cast and forge.</div>
 
     <button id="mic" class="mic on" aria-pressed="true">
       <span class="orb"><span class="ring"></span><span class="ring r2"></span>🎙</span>
-      <span class="mic-label" id="micLabel">Listening… shout a spell!</span>
+      <span class="mic-text"><span class="mic-label" id="micLabel">Starting the mic…</span>
+        <span class="mic-sub" id="micSub">Tap to turn the mic off</span></span>
     </button>
+
+    <form class="typecast" id="typeForm" autocomplete="off">
+      <input id="typed" maxlength="60" placeholder="…or type a spell" enterkeyhint="send">
+      <button class="gold small">Cast</button>
+    </form>
 
     <div class="heard" id="heard"><em>Say “uppercut”, “fireball”… or invent something new.</em></div>
 
     <div class="defend">
-      <button data-tap="dodge_left">⟵ Dodge</button>
-      <button data-tap="jump">Jump</button>
-      <button data-tap="block">Block</button>
-      <button data-tap="dodge_right">Dodge ⟶</button>
+      <button data-tap="dodge_left"><b>⟵</b>Dodge</button>
+      <button data-tap="jump"><b>⤒</b>Jump</button>
+      <button data-tap="block"><b>⛨</b>Block</button>
+      <button data-tap="dodge_right"><b>⟶</b>Dodge</button>
     </div>
 
     <button id="forgeOpen" class="forge-open">✦ Forge a new spell <small>act it out on camera</small></button>
@@ -98,7 +106,7 @@
   </section>
 
   <div class="toast" id="toast"></div>
-  <script src="app.js?v=4"></script>
-  <script type="module" src="forge.js?v=7"></script>
+  <script src="app.js?v=8"></script>
+  <script type="module" src="forge.js?v=8"></script>
 </body>
 </html>

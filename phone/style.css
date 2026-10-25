@@ -118,3 +118,41 @@ h2 small { font: 400 14px "EB Garamond", serif; opacity: .7; }
 .fcard .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; font: 700 12px Cinzel, serif; }
 .fcard .stats b { display: block; font-size: 20px; }
 .fcard .how { font-size: 14px; font-style: italic; margin-top: 8px; opacity: .8; }
+
+/* ---- v2 play screen ---- */
+.toast { z-index: 40; }
+.seat { display: flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #888; box-shadow: 0 0 6px currentColor; flex: none; }
+.dot.on { background: var(--ok); color: var(--ok); }
+.dot.connecting { background: var(--gold2); color: var(--gold2); animation: blink 1s infinite; }
+.dot.bad { background: var(--bad); color: var(--bad); }
+@keyframes blink { 50% { opacity: .3; } }
+button.roomtag { color: var(--parch); cursor: pointer; }
+.roomtag .leave { opacity: .6; margin-left: 2px; }
+.duel { margin: 12px 0; padding: 10px 12px; border-radius: 14px; background: rgba(0,0,0,.25); border: 1px solid rgba(201,162,74,.45); display: grid; gap: 6px; }
+.duel-top { display: flex; justify-content: space-between; align-items: center; font: 700 13px Cinzel, serif; letter-spacing: .06em; }
+.duel-top .timer { font-size: 18px; color: var(--gold2); }
+.bar span b { font-weight: 900; margin-left: 4px; }
+.waiting { margin: 12px 0; padding: 10px 14px; border-radius: 12px; font-style: italic; text-align: center; opacity: .85;
+  border: 1px dashed rgba(201,162,74,.45); background: rgba(0,0,0,.15); }
+.mic-text { display: grid; gap: 2px; }
+.mic-sub { font: italic 400 14px "EB Garamond", serif; opacity: .8; }
+.mic.hot .mic-label { color: var(--gold2); }
+.typecast { display: flex; gap: 8px; margin: 10px 0 0; }
+.typecast input { flex: 1; min-width: 0; padding: 12px; font: 600 18px "EB Garamond", serif; border-radius: 12px;
+  border: 1.5px solid rgba(201,162,74,.7); background: rgba(243,230,196,.95); color: var(--ink); }
+.gold.small { width: auto; margin: 0; padding: 0 18px; font-size: 15px; }
+.heard.flash { animation: flash .7s ease-out; }
+@keyframes flash { 0% { background: rgba(245,215,126,.45); transform: scale(1.02); } 100% { background: rgba(243,230,196,.08); transform: none; } }
+.spin { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; border-radius: 50%;
+  border: 2px solid var(--gold2); border-right-color: transparent; animation: rot .8s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.defend button { display: grid; gap: 2px; padding: 10px 2px; }
+.defend button b { font: 400 20px Georgia, serif; line-height: 1; }
+.defend button.pressed { background: rgba(143,227,255,.55); transform: scale(.95); }
+.spell { transition: transform .12s; }
+.spell.pressed { transform: scale(.94); box-shadow: 0 0 22px var(--gold2); }
+.spell.mine { box-shadow: 0 4px 14px rgba(0,0,0,.4), 0 0 0 1px var(--gold2), 0 0 16px rgba(245,215,126,.35); }
+.spell.cooling { opacity: .55; filter: grayscale(.5); }
+.spell.cooling::after { content: attr(data-cd); position: absolute; right: 8px; bottom: 6px; font: 700 12px Cinzel, serif; color: #6b4a14; }
+.spell .ty { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
