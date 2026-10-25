@@ -64,13 +64,13 @@ export const LIMITS: Record<Stance, number> = {
 export const SPELL_PLAYBACK = { kinematic: true, glide: 0.25, blend: 0.12, assist: 0.6, maxTravel: 0.3 };
 
 /**
- * all: every stance except the hit reactions (stagger, falling, down, ko) writes its reference
- * motion straight into qpos (no balance, no motors): physics only takes over when a hit lands.
- * blend: s to ease from a physical pose back into the reference. rise: s of the magical get-up lift.
- * downBeat: s on the floor before that lift (TUNE.downBeat otherwise).
- * Set all = false for the old behaviour (SONIC balances the body in every stance).
+ * all: while a punch is thrown, its reference motion is written straight into qpos (no balance, no
+ * motors), as spells are (SPELL_PLAYBACK); SONIC balances the robot in every other stance. blend: s to ease from a physical pose back
+ * into the reference. magicRise: get up by floating instead (rise: s of the lift, downBeat: s on the
+ * floor before it). Set all = false for the old behaviour (SONIC balances the body in every stance).
  */
-export const KINEMATIC = { all: true, blend: 0.2, rise: 0.9, downBeat: 0.5 };
+export const KINEMATIC = { all: true, blend: 0.2, magicRise: false, rise: 0.9, downBeat: 0.5 };
+const magicRise = () => KINEMATIC.all && KINEMATIC.magicRise;
 
 export const TUNE = {
   fallTiltRel: 0.8,   // rad more tilted than the motion it follows = lost balance
@@ -80,8 +80,9 @@ export const TUNE = {
   downBeat: 1.1,      // s on the floor before getting up
   upHeight: 0.66,     // m pelvis that counts as standing
   grace: 1.0,         // s untouchable after getting up
-  range: [1.1, 1.6] as [number, number],     // preferred distance to the opponent (pelvis to pelvis, m)
-  rangeDown: [1.6, 2.4] as [number, number], // ... while the opponent is down
+  range: [1.5, 2.1] as [number, number],     // preferred distance to the opponent (pelvis to pelvis, m)
+  rangeDown: [2.0, 2.8] as [number, number], // ... while the opponent is down
+  retreat: 2,         // s of brisk pacing back after a punch or melee spell (it comes in, hits, gets out)
   crowd: 0.85,        // closer than this: step back right away
   // pelvis distance each punch is thrown from (the punch itself lunges in about 0.1 m)
   punchRange: { "punch.leftJab": 0.66, "punch.rightJab": 0.66, "punch.leftHook": 0.72, "punch.rightHook": 0.72 } as Record<PunchName, number>,
@@ -245,6 +246,8 @@ export class Fighter {
   /** The playing spell's clip for the strike feed-forward: where it starts on the frame clock, its length, its arms' fast weights. */
   private armFF: { start: number; n: number; w: number[][] | null; attack: boolean } | null = null;
   private nextFootworkAt = 0;
+  /** Until when it paces back briskly: after its punch or melee spell. */
+  private retreatUntil = -Infinity;
   private sawAttack = false;
   private circleDir = 1;
   private seed: number;
@@ -344,6 +347,8 @@ export class Fighter {
   }
   /** In the middle of its own attack (stepping in, winding up, or with a strike still live). */
   isCommitted() { return this.stance === "move" && (!!this.move?.punch || this.combat.pending(this)); }
+  /** Pacing back out of range after its own punch or melee spell. */
+  retreating() { return this.clock() < this.retreatUntil; }
   /** What its current punch or spell is doing, for the AI: stepping in, or under way. */
   punchPhase(): "approach" | "throw" | null {
     if (this.stance !== "move") return null;
@@ -542,7 +547,8 @@ export class Fighter {
   private refKinematic(): boolean {
     if (!KINEMATIC.all || this.kin) return false;
     const s = this.stance;
-    return s === "idle" || s === "defend" || s === "move" || s === "rising";
+    // only briefly, while a punch is being thrown (spells play through castKin); SONIC balances the rest
+    return (s === "move" && this.move?.punch?.phase === "throw") || (s === "rising" && magicRise());
   }
 
   /** One physics step of KINEMATIC.all: the reference between this tick's frames, eased in from a physical pose. */
@@ -915,7 +921,10 @@ export class Fighter {
     if (this.kin) { this.kinStep(dt); this.rk.on = false; return; }
     this.subT += dt;
     if (this.refKinematic()) { this.refKinStep(dt); return; }
-    this.rk.on = false;
+    if (this.rk.on) { // the punch is over: SONIC takes back over from this pose, with a short upright assist
+      this.rk.on = false;
+      this.kinAssistUntil = this.clock() + SPELL_PLAYBACK.assist;
+    }
     if (this.clock() < this.kinAssistUntil && this.standing()) this.kinAssist();
     this.ctl.pd();
   }
@@ -960,7 +969,7 @@ export class Fighter {
         if (this.rise.stageT > 0.3) this.toDown();
         break;
       case "down":
-        if (this.stanceT > (KINEMATIC.all ? KINEMATIC.downBeat : TUNE.downBeat)) this.startRise();
+        if (this.stanceT > (magicRise() ? KINEMATIC.downBeat : TUNE.downBeat)) this.startRise();
         break;
       case "rising":
         this.rising(h, tilt, dt);
@@ -998,6 +1007,9 @@ export class Fighter {
   }
 
   private toIdle(reason: WhiffReason = "out of range") {
+    // in, hit, out: pace back after a punch or melee spell that was actually thrown
+    const mv = this.stance === "move" && reason !== "interrupted" ? this.move : null;
+    if (mv && (mv.punch?.phase === "throw" || (mv.spell?.phase === "cast" && mv.spell.spec.kind === "melee"))) this.retreatUntil = this.clock() + TUNE.retreat;
     if (this.combat.pending(this)) this.combat.disarm(this, reason);
     if (this.inflight && this.inflight.purpose !== "footwork") this.inflight = null; // its answer was for the stance that ended
     this.move = null;
@@ -1159,8 +1171,9 @@ export class Fighter {
       speed = dist < near ? 0.6 : 0.45;
       this.intent = "off the ropes";
     } else if (dist < near) {
-      mx = -fx; my = -fy; speed = crowded ? 0.7 : 0.4;
-      this.intent = "backing off";
+      const retreating = this.clock() < this.retreatUntil;
+      mx = -fx; my = -fy; speed = crowded || retreating ? 0.7 : 0.4;
+      this.intent = retreating ? "pacing back out of range" : "backing off";
     } else if (dist > far + 0.3) {
       mx = fx; my = fy; speed = 0.5;
       this.intent = "closing in";
@@ -1175,7 +1188,7 @@ export class Fighter {
     }
     const n = Math.hypot(mx, my);
     if (n > 1e-6) { mx /= n; my /= n; }
-    const hold = crowded ? 0.25 : 0.8 + this.rand() * 0.6;
+    const hold = crowded ? 0.25 : this.retreating() ? 0.4 : 0.8 + this.rand() * 0.6;
     // a step clip is one whole step: let it play out before asking for the next (crowded footwork
     // re-asks every 0.25 s, which cut 0.9 s clips short); a plan just continues from where it is
     this.ask(name, "footwork", { move: [mx, my], speed }, (clip) => {
@@ -1359,13 +1372,13 @@ export class Fighter {
     this.raw.replace([copyFrame(now)], this.raw.now);
     this.ctl.reset();
     this.ctl.worldHeading();
-    if (KINEMATIC.all) { this.magicRise(copyFrame(now)); return; }
+    if (magicRise()) { this.floatUp(copyFrame(now)); return; }
     if (!this.motion) { this.startAssist(); return; }
     this.planStage();
   }
 
-  /** KINEMATIC.all get-up: the body floats from where it lies up into the guard, a little past it, and settles. */
-  private magicRise(from: Frame) {
+  /** KINEMATIC.magicRise get-up: the body floats from where it lies up into the guard, a little past it, and settles. */
+  private floatUp(from: Frame) {
     this.intent = "lifted up by fairy magic";
     this.rise.cap = 0; this.rise.assist = 0;
     const [fx, fy] = this.facingOpponent();
@@ -1400,7 +1413,7 @@ export class Fighter {
 
   private rising(h: number, tilt: number, dt: number) {
     const r = this.rise, lastStage = r.stage === 1;
-    if (KINEMATIC.all) { if (this.ref.remaining === 0) this.risen(); return; }
+    if (magicRise()) { if (this.ref.remaining === 0) this.risen(); return; }
     if (h > TUNE.upHeight && tilt < 0.3) { this.risen(); return; } // standing is standing, whichever stage got it there
     if (r.assist > 0) r.assist = Math.min(r.cap, r.assist + dt / 1.2);
     if (r.cap >= 1) return; // the full lift: nothing to plan

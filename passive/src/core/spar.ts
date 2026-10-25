@@ -101,6 +101,7 @@ export class Sparrer implements Brain {
     if (was === "defend" && me.stance === "idle" && this.rng.next() < this.style.counter) { this.combo = 1; this.nextAt = t; }
 
     if (me.stance !== "idle" || !op.hittable() || t < this.nextAt || this.answer) return;
+    if (this.combo === 0 && me.retreating()) return; // in, hit, out: the next attack waits until it has paced back
     if (this.combo > 0 || this.rng.next() < this.style.aggression * dt) {
       // sometimes a spell instead of a punch (never mid-combo)
       const attacks = this.spellbook.filter((s) => s.spec.kind !== "defend");

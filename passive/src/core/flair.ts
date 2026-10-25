@@ -1,7 +1,7 @@
 // Flair: makes a shouted spell's clip look magical. Pure function over world-space REF_HZ frames
 // (36 numbers: root xyz, root quat w-first, 29 hinges in MuJoCo order), used by Fighter.castKin
-// before its glide. Bigger joint swings, a snappy wind-up with a hit-stop, hovering casts,
-// leaping melee, and a spin-and-slam shockwave. Defies physics on purpose: kinematic playback.
+// before its glide. Bigger joint swings, a snappy wind-up with a hit-stop, the biggest strikes and
+// shockwaves hovering, leaping melee, and a spinning shockwave. Defies physics on purpose: kinematic playback.
 import { type Frame, REF_HZ } from "./reference.ts";
 
 export const FLAIR = {
@@ -10,8 +10,8 @@ export const FLAIR = {
   gainLegs: 1.15, gainWaist: 1.3, gainArms: 1.45,
   /** play speed into the hit, the freeze at the hit (s), and the speed of the follow-through */
   speedIn: 1.3, hitStop: 0.1, speedOut: 0.9,
-  /** hover height for projectile / strike / shockwave / defend: base + per power (m) */
-  hoverBase: 0.14, hoverPerPower: 0.08,
+  /** hover height: base + per power (m); only the big spells float (hoverKinds at hoverMinPower), the rest stay grounded */
+  hoverBase: 0.14, hoverPerPower: 0.08, hoverKinds: ["strike", "shockwave"], hoverMinPower: 3,
   /** melee leap height: base + per power (m); it lands on the hit */
   hopBase: 0.1, hopPerPower: 0.04,
   /** shockwave: full turns spun on the way up before the slam */
@@ -87,7 +87,8 @@ export function flair(
         const a = newHit > 0 ? (t - newHit * 0.15) / (newHit * 0.85) : -1;
         if (a > 0 && a < 1) lift = (FLAIR.hopBase + FLAIR.hopPerPower * power) * Math.sin(Math.PI * a);
       } else {
-        const h = FLAIR.hoverBase + FLAIR.hoverPerPower * power;
+        const hovers = FLAIR.hoverKinds.includes(spec.kind) && power >= FLAIR.hoverMinPower;
+        const h = hovers ? FLAIR.hoverBase + FLAIR.hoverPerPower * power : 0;
         if (spec.kind === "shockwave" && newHit >= 0.35) {
           // rise while spinning, then slam down on the hit
           const up = smooth(t / Math.max(1e-3, newHit * 0.75));

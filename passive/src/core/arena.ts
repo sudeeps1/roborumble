@@ -14,7 +14,7 @@ import { SUBSTEPS, type SonicPolicy } from "./sonic.ts";
 import type { World } from "./world.ts";
 
 /** Where the fighters start: x, y, yaw. */
-export const SPAWNS: readonly (readonly [number, number, number])[] = [[-0.7, 0, 0], [0.7, 0, Math.PI]];
+export const SPAWNS: readonly (readonly [number, number, number])[] = [[-0.95, 0, 0], [0.95, 0, Math.PI]];
 
 /** HP lost per N s of impulse, by zone. A power-1 head hook at 4 m/s takes ~19 of 100. */
 export const DAMAGE = { head: 0.72, torso: 0.55, legs: 0.35, blocked: 0.12, counter: 1.25 };
