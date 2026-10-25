@@ -95,9 +95,9 @@ const set = params.get("arena") === "meadow" ? buildArena(stage) : buildForestAr
 const fx = new Fx(arena, set.look, (n) => known.get(n));
 fx.camera = stage.camera; // spell ribbons face it
 stage.scene.add(fx.root);
-// ?fx=game: the game's spell effects (src/fx, one look per effect tag) draw the spells and hits instead;
-// this screen's own effects keep the channeling aura and the dust of bodies hitting the floor
-const gameFx = params.get("fx") === "game" ? new GameFx(world, ROSTER.map((r) => Number.parseInt(r.color.slice(1), 16))) : null;
+// the game's spell effects (src/fx, one look per effect tag) draw the spells and hits (?fx=soft: this
+// screen's softer ones); this screen's own effects keep the channeling aura and the dust of bodies hitting the floor
+const gameFx = params.get("fx") !== "soft" ? new GameFx(world, ROSTER.map((r) => Number.parseInt(r.color.slice(1), 16))) : null;
 if (gameFx) {
   stage.scene.add(gameFx.root);
   gameFx.track(() => arena.projectiles(), () => arena.time);

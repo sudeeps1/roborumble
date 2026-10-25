@@ -7,9 +7,9 @@ import { type Frame, REF_HZ } from "./reference.ts";
 export const FLAIR = {
   on: true,
   /** joint gain around the clip's rest pose: legs (0-11), waist (12-14), arms (15-28) */
-  gainLegs: 1.15, gainWaist: 1.3, gainArms: 1.45,
+  gainLegs: 1.05, gainWaist: 1.15, gainArms: 1.15,
   /** play speed into the hit, the freeze at the hit (s), and the speed of the follow-through */
-  speedIn: 1.3, hitStop: 0.1, speedOut: 0.9,
+  speedIn: 1, hitStop: 0.22, speedOut: 0.85,
   /** hover height: base + per power (m); only the big spells float (hoverKinds at hoverMinPower), the rest stay grounded */
   hoverBase: 0.14, hoverPerPower: 0.08, hoverKinds: ["strike", "shockwave"], hoverMinPower: 3,
   /** melee leap height: base + per power (m); it lands on the hit */
