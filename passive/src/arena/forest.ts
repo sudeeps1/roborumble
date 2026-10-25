@@ -100,7 +100,7 @@ function starField(r: number, n = 2400): THREE.Points {
  * far back in the fog. Nothing comes within PROP_CLEAR m of the ring's centre. MuJoCo frame (Z up).
  */
 const PROP_CLEAR = 5.0; // m
-export async function loadMagicProps(): Promise<THREE.Group> {
+export async function loadMagicProps(forest?: THREE.Object3D): Promise<THREE.Group> {
   const { FBXLoader } = await import("three/addons/loaders/FBXLoader.js");
   const tex = new THREE.TextureLoader();
   const t = (url: string, srgb = true) => { const x = tex.load(url); if (srgb) x.colorSpace = THREE.SRGBColorSpace; return x; };
@@ -134,26 +134,66 @@ export async function loadMagicProps(): Promise<THREE.Group> {
   ring.scale.setScalar(0.006); // a 3 m cluster of rune stones, back left of the ring
   ring.position.set(-5.2, 0, -5.4);
   yup.add(ring);
-  // the fairy land, centred on the ring: only what stands outside the fight
+  // fairy land: a hand-picked set of pieces on chosen spots behind and beside the ring, plus small
+  // grass, reed and flower clumps scattered over the grass; each one set down on the forest's terrain
+  // (a downward ray), and a spot is skipped when the ray meets a tree, a rock or the stump instead
   const fairyMat = glowing(t("/props/fairy/T_Fairy_A.png"), t("/props/fairy/T_Fairy_E.png"), 1.6);
   fairy.scale.setScalar(0.01);
   fairy.updateMatrixWorld(true);
-  const fb = new THREE.Box3().setFromObject(fairy), fc = fb.getCenter(new THREE.Vector3());
-  fairy.position.set(-fc.x, -fb.min.y - 0.02, -fc.z);
-  fairy.updateMatrixWorld(true);
-  const box = new THREE.Box3(), c = new THREE.Vector3();
-  fairy.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    box.setFromObject(m).getCenter(c);
-    const r = Math.hypot(c.x, c.z), half = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
-    if (r - half < PROP_CLEAR || r > 15) { m.visible = false; return; }
-    // each piece stands on the floor (the pack's own layout had them on a raised base: they floated)
-    const sy = m.parent!.getWorldScale(new THREE.Vector3()).y || 1;
-    m.position.y -= box.min.y / sy;
-    m.material = fairyMat; m.castShadow = true;
-  });
-  yup.add(fairy);
+  const piece = (name: string): THREE.Object3D | null => {
+    const src = fairy.getObjectByName(name) as THREE.Mesh | undefined;
+    if (!src?.isMesh) return null;
+    const m = new THREE.Mesh(src.geometry, fairyMat);
+    m.applyMatrix4(src.matrixWorld);
+    const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3());
+    m.position.x -= c.x; m.position.z -= c.z; m.position.y -= b.min.y;
+    m.castShadow = true;
+    const g = new THREE.Group(); g.add(m);
+    return g;
+  };
+  forest?.updateMatrixWorld(true);
+  const ray = new THREE.Raycaster();
+  const placed: { x: number; z: number; r: number }[] = [];
+  /** Sets a piece down at (x, z) of the forest's frame; false when the spot is not open grass or is taken. */
+  const put = (name: string, x: number, z: number, scale: number, rot: number, room: number): boolean => {
+    if (Math.hypot(x, z) < PROP_CLEAR || placed.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + room)) return false;
+    let y = 0;
+    if (forest) {
+      ray.set(new THREE.Vector3(x, -z, 40), new THREE.Vector3(0, 0, -1)); // the forest's frame (Y up) -> MuJoCo (Z up)
+      const hit = ray.intersectObject(forest, true).find((h) => (h.object as THREE.Mesh).visible);
+      if (!hit) return false;
+      const mat = (Array.isArray((hit.object as THREE.Mesh).material) ? ((hit.object as THREE.Mesh).material as THREE.Material[])[0] : (hit.object as THREE.Mesh).material as THREE.Material);
+      if (!/grass/i.test(mat?.name ?? "")) return false;
+      y = hit.point.z;
+    }
+    const g = piece(name);
+    if (!g) return false;
+    g.position.set(x, y - 0.03, z); g.rotation.y = rot; g.scale.setScalar(scale);
+    yup.add(g);
+    placed.push({ x, z, r: room });
+    return true;
+  };
+  // the big pieces, behind (-z) and to the sides of the ring, never on the camera's side (+z)
+  const BIG: [string, number, number, number][] = [ // name, angle (deg, 0 = +x, -90 = straight behind), radius m, scale
+    ["Acorn_streetlight", -40, 6.5, 0.55], ["Acorn_streetlight", -140, 6.5, 0.55], ["Sigil_stone", -90, 7.5, 0.6],
+    ["Lutin_house_5", -15, 7.5, 0.8], ["Lutin_house_3", -165, 7.5, 0.8], ["Wishing_well", -115, 8.5, 0.6],
+    ["Lutin_house_1", 5, 8, 0.8], ["Lutin_house_4", 175, 8, 0.8], ["Dandelion_1", -60, 9, 0.6], ["blue_lilly_1", -125, 6.2, 0.6],
+    ["blue_lilly_3", -55, 6.2, 0.6], ["Fairy_house", -100, 11, 0.6], ["Dandelion_2", -150, 10, 0.6], ["Light_1", 20, 6.2, 0.9], ["Light_3", 160, 6.2, 0.9],
+  ];
+  for (const [n, a, r, sc] of BIG) {
+    const rad = THREE.MathUtils.degToRad(a);
+    for (const dr of [0, 0.8, -0.6, 1.6]) if (put(n, Math.cos(rad) * (r + dr), Math.sin(rad) * (r + dr), sc, rad + Math.PI / 2, 1.2)) break;
+  }
+  // small clumps all round (grass, reeds, flowers), seeded so every load looks the same
+  const SMALL = ["High_grass_1", "High_grass_2", "High_grass_3", "Reed_1", "Reed_3", "Purpelbell_1", "LionSun_1", "Red_horn_1", "HightPrincess_1", "popflower_1", "PaleHorn_1"];
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0, n = 0; k < 600 && n < 140; k++) {
+    const a = rnd() * Math.PI * 2, r = 5.2 + rnd() * 8;
+    const name = SMALL[Math.floor(rnd() * SMALL.length)];
+    const sc = name.startsWith("High_grass") ? 0.18 + 0.1 * rnd() : name.startsWith("popflower") ? 0.25 : 0.45 + 0.3 * rnd();
+    if (put(name, Math.cos(a) * r, Math.sin(a) * r, sc, rnd() * Math.PI * 2, 0.35)) n++;
+  }
   // the windmill and its trees, far back behind the fighters, in the fog
   mill.scene.scale.setScalar(0.7);
   mill.scene.position.set(18, -0.3, -32); // a far silhouette, half in the fog

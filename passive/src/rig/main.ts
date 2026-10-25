@@ -113,7 +113,7 @@ if (params.get("arena") !== "0") {
     }
     view.scene.add(forest);
     nightSky(view.scene); // the viewer's violet sky, stars and fog
-    loadMagicProps().then((p) => view.scene.add(p)).catch((e) => console.warn("magic props not loaded:", e));
+    loadMagicProps(forest).then((p) => view.scene.add(p)).catch((e) => console.warn("magic props not loaded:", e));
   }).catch((e) => console.warn("forest not loaded:", e));
 }
 view.setLook(startLook);

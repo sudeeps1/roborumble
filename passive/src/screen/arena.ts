@@ -18,8 +18,10 @@ export function buildForestArena(stage: Stage): ArenaSet {
   const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 64), new THREE.MeshStandardMaterial({ color: 0x2c3a2a, roughness: 1 }));
   floor.receiveShadow = true; // until the forest has loaded
   s.add(floor);
-  loadForest().then((g) => { s.add(g); floor.visible = false; }).catch((e) => console.warn("forest not loaded, plain floor:", e));
-  loadMagicProps().then((g) => s.add(g)).catch((e) => console.warn("magic props not loaded:", e));
+  loadForest().then((g) => {
+    s.add(g); floor.visible = false;
+    loadMagicProps(g).then((p) => s.add(p)).catch((e) => console.warn("magic props not loaded:", e));
+  }).catch((e) => console.warn("forest not loaded, plain floor:", e));
   stage.hemi.color.setHex(0x8a7ab8);
   stage.hemi.groundColor.setHex(0x34442e);
   stage.hemi.intensity = 0.8;
