@@ -39,7 +39,10 @@ const run = async (seconds: number, until?: () => boolean) => {
   for (let i = 0; i < seconds * 50; i++) { await arena.tick(); if (until?.()) return true; }
   return false;
 };
+// every case starts from the marks (a spell's knockdown throws its target, so where the last case
+// left the fighters would otherwise change the next one)
 const fresh = async () => {
+  arena.reset();
   await run(10, () => p1.stance === "idle" && p2.stance === "idle");
   await run(0.6);
   arena.hp = [100, 100]; p1.poise = p2.poise = 1; events = [];
