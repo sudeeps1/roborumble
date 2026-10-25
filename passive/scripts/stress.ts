@@ -13,6 +13,9 @@ import { DEFAULT_ANGLES } from "../src/core/g1.ts";
 import { Rng, finite3 } from "../src/core/math.ts";
 import { ClipSource, LayeredSource, type MotionAsk, type MotionClip, type MotionSource, PlannerSource, type StrikeWindow, rowsFromJson, strikeFromHit } from "../src/core/motion.ts";
 import { STYLES, Sparrer } from "../src/core/spar.ts";
+import { type MoveSpec, specFromLibrary } from "../src/core/spells.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { nodeArena } from "./node-arena.ts";
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
@@ -65,6 +68,20 @@ function kickClip(): number[][] {
   return rows;
 }
 const KICK = kickClip();
+
+// Vaibhav's Kimodo spells (public/clips-kimodo), cast at random, plus broken specs
+const SPELL_DIR = join(import.meta.dirname, "..", "public", "clips-kimodo");
+const SPELLS = (JSON.parse(readFileSync(join(SPELL_DIR, "spells.json"), "utf8")) as Record<string, unknown>[]).map((e) => {
+  const c = JSON.parse(readFileSync(join(SPELL_DIR, String(e.file)), "utf8"));
+  return { spec: specFromLibrary(e as never), qpos: c.qpos as number[][], fps: c.fps as number };
+});
+const BAD_SPECS: MoveSpec[] = [
+  { name: "no kind", kind: "teleport" as never },
+  { name: "nan frame", kind: "projectile", hitFrame: Number.NaN, power: Number.POSITIVE_INFINITY, hitJoint: "tail" as never },
+  { name: "late frame", kind: "strike", hitFrame: 1e6, power: -3 },
+  { name: "melee", kind: "melee", hitFrame: 0, power: 3 },
+  { name: "wave", kind: "shockwave", power: 2 },
+];
 
 /** Synthetic clip library standing in for Kimodo clips (logic coverage, not realism). */
 function syntheticClips(): ClipSource {
@@ -245,6 +262,13 @@ function act() {
   } else if (r < 0.0329) { did("spawnNaN"); const f = someone(); f.spawn(Number.NaN, Number.POSITIVE_INFINITY, Number.NaN); }
   else if (r < 0.0331) { did("hangAll"); offlineUntil = arena.time + rng.range(5, 9); arena.setMotion(HANG); } // every request hangs
   else if (r < 0.0334) { did("clips"); offlineUntil = arena.time + rng.range(10, 25); arena.setMotion(new LayeredSource(CLIPS, chaos)); } // a clip library in front of the planner
+  else if (r < 0.0414) { // a spell: real ones, sometimes a broken spec or clip
+    did("cast");
+    const sp = pick(SPELLS), f = someone(), q = rng.next();
+    if (q < 0.75) f.cast(sp.spec, sp.qpos, sp.fps);
+    else if (q < 0.9) f.cast(pick(BAD_SPECS), sp.qpos, sp.fps);
+    else f.cast(sp.spec, pick(BROKEN_CLIPS)[0] as number[][], pick([30, 0, Number.NaN]));
+  }
 }
 
 // ---------- run ----------

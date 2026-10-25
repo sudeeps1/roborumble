@@ -13,7 +13,9 @@
     "check": "tsc --noEmit",
     "rig:human": "/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python scripts/rig_human.py --",
     "fight-check": "node scripts/fight-check.ts",
-    "stress": "node scripts/stress.ts"
+    "stress": "node scripts/stress.ts",
+    "spell-check": "node scripts/spell-check.ts",
+    "spell-batch": "node scripts/spell-batch.ts"
   },
   "dependencies": {
     "@mujoco/mujoco": "3.17.0",

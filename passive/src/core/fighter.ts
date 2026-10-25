@@ -26,6 +26,7 @@ import { contextFromReference } from "./planner.ts";
 import { type Frame, REF_HZ, Reference, copyFrame, mixFrames, poseFrame, resample, sanitizeFrames, waistToHips } from "./reference.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SonicController, type SonicPolicy } from "./sonic.ts";
+import { type MoveSpec, SPELL, checkSpec } from "./spells.ts";
 import type { RobotHandle, World } from "./world.ts";
 
 export type Stance = "idle" | "stagger" | "defend" | "move" | "falling" | "down" | "rising" | "ko";
@@ -122,7 +123,9 @@ type Purpose = "footwork" | "approach" | "punch" | "defense" | "stagger" | "getu
 interface AskOpts { move?: [number, number]; speed?: number; facing?: [number, number]; fromRobot?: boolean; stage?: number; seed?: number }
 interface Inflight { token: number; purpose: Purpose; stage: number; at: number; onFail: () => void }
 interface Punch { name: PunchName; power: number; phase: "approach" | "throw"; stepping: boolean; approachT: number }
-interface Move { name: string; endT: number; punch: Punch | null }
+/** A spell or other server move (spells.ts): its clip, when it hits, and (melee) its step-in. */
+interface Spell { spec: NonNullable<ReturnType<typeof checkSpec>>; frames: Frame[]; hitT: number; phase: "approach" | "cast"; stepping: boolean; approachT: number; gap: number }
+interface Move { name: string; endT: number; punch: Punch | null; spell?: Spell | null }
 
 const freshRise = () => ({ stage: 0, stageT: 0, tries: 0, fails: 0, failed: false, assist: 0, cap: 0, startT: 0 });
 
@@ -249,7 +252,9 @@ export class Fighter {
   standing() { return this.stance === "idle" || this.stance === "stagger" || this.stance === "defend" || this.stance === "move"; }
   /** Can be hit right now (standing, and not in the grace period after getting up). */
   hittable() { return this.standing() && this.clock() >= this.graceUntil; }
-  isBlocking() { return this.stance === "defend" && this.defense?.kind === "block"; }
+  isBlocking() {
+    return (this.stance === "defend" && this.defense?.kind === "block") || (this.stance === "move" && this.move?.spell?.phase === "cast" && this.move.spell.spec.kind === "defend");
+  }
   /** Slipping, ducking, stepping back or jumping: a whiff against this fighter counts as dodged. */
   isEvading() { return this.stance === "defend" && !!this.defense && this.defense.kind !== "block"; }
   /**
@@ -268,8 +273,13 @@ export class Fighter {
   }
   /** In the middle of its own attack (stepping in, winding up, or with a strike still live). */
   isCommitted() { return this.stance === "move" && (!!this.move?.punch || this.combat.pending(this)); }
-  /** What its current punch is doing, for the AI. */
-  punchPhase(): "approach" | "throw" | null { return this.stance === "move" ? this.move?.punch?.phase ?? null : null; }
+  /** What its current punch or spell is doing, for the AI: stepping in, or under way. */
+  punchPhase(): "approach" | "throw" | null {
+    if (this.stance !== "move") return null;
+    const sp = this.move?.spell;
+    if (sp) return sp.phase === "approach" ? "approach" : "throw";
+    return this.move?.punch?.phase ?? null;
+  }
   /** Name of the move or punch in progress. */
   moveName(): string | null { return this.stance === "move" ? this.move?.name ?? null : null; }
   defenseKind(): Defense | null { return this.stance === "defend" ? this.defense?.kind ?? null : null; }
@@ -330,6 +340,51 @@ export class Fighter {
   }
 
   /**
+   * Casts a spell or plays another server move (spells.ts): a Kimodo clip (qpos rows at `fps`) plus
+   * what kind of move it is. Its hit is decided by the kind at its hit frame: a melee move steps in
+   * first; a projectile flies from the hit joint; a strike lands from above a moment later where the
+   * defender stood; a shockwave hits nearby; a defend move (Earth Wall) blocks for the whole move.
+   * Works from idle or while defending; false if the spec or the clip can't be used.
+   */
+  cast(spec: MoveSpec, qpos: ArrayLike<number>[], fps = 30): boolean { return this.run(() => this.startCast(spec, qpos, fps)); }
+  private startCast(spec0: MoveSpec, qpos: ArrayLike<number>[], fps: number): boolean {
+    if (this.stance !== "idle" && this.stance !== "defend") return false;
+    const spec = checkSpec(spec0);
+    const frames = spec ? this.clipFrames(qpos, fps) : null;
+    if (!spec || !frames) return false;
+    const dur = (frames.length - 1) / REF_HZ;
+    const hitT = spec.hitFrame >= 0 ? Math.min(dur, spec.hitFrame / fps) : dur * 0.45;
+    // a melee move counts its own lunge (how far its root travels toward the opponent by the hit)
+    const k = Math.min(frames.length - 1, Math.round(hitT * REF_HZ)), [fx, fy] = this.facingOpponent();
+    const lunge = Math.max(0, (frames[k][0] - frames[0][0]) * fx + (frames[k][1] - frames[0][1]) * fy);
+    this.gen++; this.inflight = null;
+    this.defense = null;
+    this.effects = this.effects.filter((e) => e.tag !== "defense");
+    this.setStance("move");
+    this.attackSerial++;
+    const spell: Spell = { spec, frames, hitT, phase: spec.kind === "melee" ? "approach" : "cast", stepping: false, approachT: 0, gap: SPELL.meleeGap + lunge };
+    this.move = { name: spec.name, endT: this.clock() + LIMITS.move - 0.5, punch: null, spell };
+    if (spell.phase === "cast") this.castNow(this.move, spell);
+    else this.intent = `stepping in: ${spec.name}`;
+    this.emit({ type: "move", who: this.index, name: spec.name });
+    return true;
+  }
+
+  /** Plays the spell's clip now (both fighters' moves started together land on the same tick). */
+  private castNow(mv: Move, sp: Spell) {
+    sp.phase = "cast";
+    this.gen++; this.inflight = null; // drop a stepping-in answer still coming
+    const start = this.startFrame();
+    this.raw.splice(sp.frames.map(copyFrame), start, 8);
+    this.ref.splice(waistToHips(sp.frames.map(copyFrame)), start, 8);
+    const t0 = this.timeOfFrame(start);
+    const o = this.world.rootPos(this.opponent.robot);
+    this.combat.cast(this, this.opponent, sp.spec, t0 + sp.hitT, [o[0], o[1]]);
+    mv.endT = t0 + (sp.frames.length - 1) / REF_HZ + 0.1;
+    this.intent = `${sp.spec.kind === "defend" ? "raising" : "casting"} ${sp.spec.name}`;
+  }
+
+  /**
    * Block, duck, dodge (left, right, back) or jump, for `seconds` (defaults per kind).
    * Works from idle, while already defending, or to cancel a punch that is still stepping in.
    * `clip` (Kimodo qpos rows at `fps`) acts it out instead of the built-in motion; the defense then
@@ -340,7 +395,7 @@ export class Fighter {
   }
   private startDefense(kind: Defense, seconds: number | undefined, clip: { qpos: ArrayLike<number>[]; fps: number } | undefined): boolean {
     if (!DEFENSES.includes(kind)) return false;
-    const cancelling = this.stance === "move" && this.move?.punch?.phase === "approach";
+    const cancelling = this.stance === "move" && (this.move?.punch?.phase === "approach" || this.move?.spell?.phase === "approach");
     if (this.stance !== "idle" && this.stance !== "defend" && !cancelling) return false;
     const frames = clip ? this.clipFrames(clip.qpos, clip.fps) : null;
     if (clip && !frames) return false;
@@ -442,7 +497,7 @@ export class Fighter {
     const poiseHit = clamp(imp.poise, 0, 2) * (blocked ? 0.2 : 1) * (imp.counter ? 1.5 : 1);
     this.poise = Math.max(0, this.poise - poiseHit);
     this.lastHitT = now;
-    const knockdown = !blocked && (impulse >= TUNE.knockdownImpulse || this.poise <= 0);
+    const knockdown = !blocked && (impulse >= TUNE.knockdownImpulse || this.poise <= 0 || !!imp.knockdown);
     if (knockdown) impulse = Math.min(impulse, TUNE.knockdownPush);
     const force = impulse / TUNE.pulse;
     this.pulses.push({ body, local: this.world.toLocal(body, imp.point), force: [dir[0] * force, dir[1] * force, dir[2] * force], left: TUNE.pulse });
@@ -698,7 +753,9 @@ export class Fighter {
   private lostBalance(tilt: number, h: number): boolean {
     const f = this.ref.current();
     const refTilt = tiltOf([f[3], f[4], f[5], f[6]]);
-    return tilt > TUNE.fallTiltAbs || tilt - refTilt > TUNE.fallTiltRel || h < f[2] - TUNE.fallDrop;
+    // past fallTiltAbs counts only if the motion doesn't ask for it: a deliberate deep bend (a
+    // ground slam) tilts the pelvis that far on purpose
+    return (tilt > TUNE.fallTiltAbs && tilt > refTilt + 0.35) || tilt - refTilt > TUNE.fallTiltRel || h < f[2] - TUNE.fallDrop;
   }
 
   private oops(e: unknown) {
@@ -775,7 +832,7 @@ export class Fighter {
   private stillWants(purpose: Purpose, stage: number): boolean {
     switch (purpose) {
       case "footwork": return this.stance === "idle";
-      case "approach": return this.stance === "move" && this.move?.punch?.phase === "approach";
+      case "approach": return this.stance === "move" && (this.move?.punch?.phase === "approach" || this.move?.spell?.phase === "approach");
       case "punch": return this.stance === "move" && this.move?.punch?.phase === "throw";
       case "defense": return this.stance === "defend";
       case "stagger": return this.stance === "stagger";
@@ -860,10 +917,10 @@ export class Fighter {
    * An interrupted punch or clip stops now: the motion eases into a standing guard (0.2 s) instead
    * of playing on. The guard plan asked for next replaces it when it comes.
    */
-  private cutMotion() {
+  private cutMotion(frames = 10) {
     const [fx, fy] = this.facingOpponent(), yaw = Math.atan2(fy, fx);
     const f = this.raw.at(this.raw.now + 1);
-    this.easeTo(poseFrame([f[0], f[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES), 10);
+    this.easeTo(poseFrame([f[0], f[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES), frames);
   }
 
   /** Replaces the motion after "now" with a blend from where it is to `target` over n frames, then holds it. */
@@ -880,6 +937,22 @@ export class Fighter {
   private followMove(dt: number) {
     const mv = this.move;
     if (!mv) { this.toIdle(); return; }
+    const sp = mv.spell;
+    if (sp && sp.phase === "approach") {
+      if (!this.opponent.standing()) { this.intent = "opponent down"; this.toIdle("interrupted"); return; }
+      sp.approachT += dt;
+      const ready = this.distanceTo(this.opponent) <= sp.gap && this.closingSpeed() > -0.15;
+      if (!ready && sp.approachT < TUNE.approachTime) {
+        if (!this.inflight && (!sp.stepping || this.ref.remaining < 20)) {
+          sp.stepping = true;
+          this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 });
+        }
+        return;
+      }
+      this.castNow(mv, sp);
+      return;
+    }
+    if (sp && this.clock() > mv.endT) { this.cutMotion(20); this.toIdle(); return; } // ease back up out of the clip's last pose
     const pu = mv.punch;
     if (pu && pu.phase === "approach") {
       if (!this.opponent.standing()) { this.intent = "opponent down"; this.toIdle("interrupted"); return; }

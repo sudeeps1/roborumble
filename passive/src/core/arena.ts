@@ -8,6 +8,7 @@ import { Combat, type HitResult, type Impact } from "./combat.ts";
 import type { ArenaEvent, ArenaListener, Who } from "./events.ts";
 import { Fighter, type InstantHit, missedInstant } from "./fighter.ts";
 import type { MotionSource } from "./motion.ts";
+import { SPELL } from "./spells.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SUBSTEPS, type SonicPolicy } from "./sonic.ts";
 import type { World } from "./world.ts";
@@ -74,6 +75,7 @@ export class Arena {
     this.fighters[1].opponent = this.fighters[0];
     this.combat.onHit = (imp, target, res) => this.scoreHit(imp, target, res);
     this.combat.onWhiff = (a, name, reason, closest) => { this.stats.whiffs++; this.emit({ type: "whiff", attacker: a.index, name, reason, closest: Number.isFinite(closest) ? closest : 9 }); };
+    this.combat.onRelease = (a, spec, point) => this.emit({ type: "release", who: a.index, name: spec.name, kind: spec.kind, spellType: spec.type ?? "physical", effect: spec.effect ?? "none", point });
   }
 
   /** Where both fighters get their motion (null: hold a standing guard, assisted get-ups). */
@@ -133,6 +135,11 @@ export class Arena {
     });
   }
 
+  /** Projectiles in flight, for drawing (the game's Sim.projectiles()). */
+  projectiles(): { pos: number[]; type: string; effect: string; owner: Who }[] {
+    return this.combat.projectiles().map((p) => ({ pos: p.pos, type: p.type, effect: p.effect, owner: p.owner.index }));
+  }
+
   /** Pelvis-to-pelvis distance (m). */
   distance() {
     const a = this.world.rootPos(this.fighters[0].robot), b = this.world.rootPos(this.fighters[1].robot);
@@ -150,9 +157,12 @@ export class Arena {
     if (!res.landed) return;
     this.stats.hits++;
     const i = target.index;
-    const damage = Math.max(0, imp.impulse) * DAMAGE[imp.zone] * (res.blocked ? DAMAGE.blocked : 1) * (imp.counter ? DAMAGE.counter : 1);
+    // a spell's damage comes from its move rules (spells.ts); a fist's from how hard it landed
+    const damage = imp.damage !== undefined
+      ? imp.damage * (res.blocked ? SPELL.blockMult : 1)
+      : Math.max(0, imp.impulse) * DAMAGE[imp.zone] * (res.blocked ? DAMAGE.blocked : 1) * (imp.counter ? DAMAGE.counter : 1);
     this.hp[i] = Math.max(0, this.hp[i] - (Number.isFinite(damage) ? damage : 0));
-    this.emit({ type: "hit", attacker: imp.attacker?.index ?? null, defender: i, name: imp.name, zone: imp.zone, point: imp.point, dir: imp.dir, impulse: imp.impulse, damage, hp: this.hp[i], blocked: res.blocked, counter: imp.counter, knockdown: res.knockdown, stance: target.stance });
+    this.emit({ type: "hit", attacker: imp.attacker?.index ?? null, defender: i, name: imp.name, zone: imp.zone, point: imp.point, dir: imp.dir, impulse: imp.impulse, damage, hp: this.hp[i], blocked: res.blocked, counter: imp.counter, knockdown: res.knockdown, stance: target.stance, how: imp.how, spellType: imp.type, effect: imp.effect, clean: imp.clean });
     if (this.autoKO && this.hp[i] <= 0 && target.stance !== "ko") target.knockOut();
   }
 

@@ -341,6 +341,52 @@ public/clips/block_a.json  {"fps": 30, "qpos": [[36 values], ...], "strikes": [.
 - **Step clips:** `step` picks `step.forward`, `step.back`, `step.left` or `step.right` by
   direction.
 
+### Spells and other server moves
+A spell is data, not code: a spec (`MoveSpec` in `src/core/spells.ts`) plus its Kimodo clip.
+`fighter.cast(spec, qpos, fps)` plays it. Its `kind` decides how the hit lands, by the same rules as
+the game screen's stub sim:
+
+| Kind | How it lands | Beaten by |
+| --- | --- | --- |
+| `melee` | Steps in to 0.75 m (counting the clip's own lunge), then lands if the pelvises are within 1 m at the hit frame. Clean if the hit joint is within 0.3 m of the head or chest | a dodge (at the zone it reaches), a block |
+| `projectile` | Leaves the hit joint at the hit frame, flies at 6 m/s toward the chest, homing until the defender dodges | a slip or step back, a block, Earth Wall |
+| `strike` | Called down at the hit frame, lands 0.6 s later if the defender is still within 0.5 m of where they stood when the move started | stepping away, a dodge when it lands, a block |
+| `shockwave` | Hits a defender within 1.5 m at the hit frame | a jump, a block |
+| `defend` | The caster blocks for the whole move (Earth Wall) | nothing to beat |
+
+- **Damage:** by kind and power 1/2/3: melee 8/12/16, projectile 6/10/14, strike 7/11/15,
+  shockwave 5/8/11. A clean hit does 1.25x, a blocked one 0.3x.
+- **Knockdown:** any hit of 16 or more, or a clean power-3 hit. The push is sized from the damage.
+- **Interruptions:** a spell whose caster is hit or falls before its hit frame fizzles. A
+  projectile already in flight, or a strike already called, still arrives.
+- **Events:**
+  - `release` fires at the hit frame (draw the effect: the orb leaves the hands, the bolt is
+    called, the wall rises).
+  - Hits carry `how`, `spellType`, `effect` and `clean`.
+  - A miss is a `whiff` with reason `dodged` or `out of range`.
+- **Projectiles:** `arena.projectiles()` lists the ones in flight for drawing (the game's
+  `Sim.projectiles()`).
+- **Library entries:** `specFromLibrary(entry)` turns a `spells.json` entry (`name, kind, type,
+  effect, power, hit_joint, hit_frame, file`) into a spec. Vaibhav's four are in `public/clips-kimodo/`.
+- **Deep bends:** clips that bend far over (Earth Wall slams the ground) are safe to play. The
+  posture fix never tilts the pelvis past 50°, and losing balance is judged against the clip's own
+  lean.
+
+**Checking a library of spells:**
+```
+npm run spell-batch -- path/to/spells.json --runs 3 --out report.json
+```
+It plays every spell on the robots, headless, against a standing opponent, and prints one line
+per spell:
+- `stability`: the share of runs still upright 1 s after the move. Runs 2..N add a small seeded
+  shove during the move.
+- the caster's worst tilt
+- whether it lands, and for how much
+- anything that tips its own caster over or can't land
+
+About 4 s per spell per run. `npm run spell-check` checks Vaibhav's four in detail: each one
+undefended, against a slip, a block and Earth Wall, and two fireballs crossing.
+
 ### Tuning knobs
 | Knob | What it sets |
 | --- | --- |

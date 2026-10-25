@@ -4,7 +4,7 @@
 // so motion that arrives late (an async plan) still lines up, even if the buffer was trimmed or
 // replaced in between. New motion is spliced in with a short crossfade, as SONIC's deploy stack does.
 import { NJ } from "./g1.ts";
-import { slerp } from "./math.ts";
+import { slerp, tiltOf } from "./math.ts";
 
 export const REF_HZ = 50;
 const KEEP_BEHIND = 25; // frames kept before "now"
@@ -155,6 +155,8 @@ export class Reference {
 
 /** Extra forward pelvis tilt (rad); SONIC tracks the pelvis a few degrees short of the reference. */
 export const FORWARD_LEAN = 0.06;
+/** waistToHips stops adding pelvis tilt here (rad, 50 deg). */
+export const MAX_PELVIS_TILT = 0.87;
 
 /**
  * SONIC holds the G1's waist pitch nearly still, so a reference that leans forward at the waist
@@ -164,7 +166,10 @@ export const FORWARD_LEAN = 0.06;
 export function waistToHips(frames: Frame[], k = 1, extra = FORWARD_LEAN): Frame[] {
   const WAIST_PITCH = 7 + 14, HIP_L = 7 + 0, HIP_R = 7 + 6;
   for (const f of frames) {
-    const th = k * f[WAIST_PITCH] + extra;
+    // never tip the pelvis past MAX_PELVIS_TILT this way: a motion already bent far over (a ground
+    // slam) keeps its waist bend instead of becoming a near-horizontal pelvis SONIC can't hold
+    const tilt0 = tiltOf([f[3], f[4], f[5], f[6]]);
+    const th = Math.min(k * f[WAIST_PITCH] + extra, Math.max(0, MAX_PELVIS_TILT - tilt0));
     const s = Math.sin(th / 2), c = Math.cos(th / 2);
     // root quat * rotation about the pelvis' own y axis (positive = top forward)
     const w = f[3], x = f[4], y = f[5], z = f[6];
