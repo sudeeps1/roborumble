@@ -11,7 +11,7 @@ import { DEFENSES, type Defense, type Fighter, LIMITS, PUNCHES, type PunchName, 
 import type { ArenaEvent, Who } from "../src/core/events.ts";
 import { DEFAULT_ANGLES } from "../src/core/g1.ts";
 import { Rng, finite3 } from "../src/core/math.ts";
-import { type MotionAsk, type MotionClip, type MotionSource, PlannerSource, type StrikeWindow, rowsFromJson, strikeFromHit } from "../src/core/motion.ts";
+import { ClipSource, LayeredSource, type MotionAsk, type MotionClip, type MotionSource, PlannerSource, type StrikeWindow, rowsFromJson, strikeFromHit } from "../src/core/motion.ts";
 import { STYLES, Sparrer } from "../src/core/spar.ts";
 import { nodeArena } from "./node-arena.ts";
 
@@ -65,6 +65,32 @@ function kickClip(): number[][] {
   return rows;
 }
 const KICK = kickClip();
+
+/** Synthetic clip library standing in for Kimodo clips (logic coverage, not realism). */
+function syntheticClips(): ClipSource {
+  const stand = (k: number, f: (t: number, q: number[]) => void, z = 0.793, quat = [1, 0, 0, 0], x = (t: number) => 0) => {
+    const rows: number[][] = [];
+    for (let i = 0; i <= k; i++) { const t = i / 30, q = DEFAULT_ANGLES.slice(); f(t, q); rows.push([x(t), 0, z, ...quat, ...q]); }
+    return rows;
+  };
+  const up = (t: number, q: number[]) => { q[15] = q[22] = -0.6; q[18] = q[25] = -0.3; void t; };
+  const lying = [Math.cos(-Math.PI / 4), 0, Math.sin(-Math.PI / 4), 0]; // pitched back 90 deg: face up
+  const getup: number[][] = [];
+  for (let i = 0; i <= 60; i++) { // face up to standing in 2 s (crude, for the stage logic only)
+    const u = i / 60, a = (-Math.PI / 2) * (1 - u);
+    const q = DEFAULT_ANGLES.slice(); q[0] = q[6] = -1.2 * (1 - u) - 0.312 * u; q[3] = q[9] = 1.8 * (1 - u) + 0.669 * u;
+    getup.push([0, 0, 0.15 + 0.64 * u, Math.cos(a / 2), 0, Math.sin(a / 2), 0, ...q]);
+  }
+  void lying;
+  return new ClipSource({
+    guard: [{ fps: 30, qpos: stand(30, (t, q) => { q[3] = q[9] = 0.669 + 0.08 * Math.sin(t * 12); }) }],
+    block: [{ fps: 30, qpos: stand(24, up) }],
+    duck: [{ fps: 30, qpos: stand(18, (t, q) => { q[0] = q[6] = -0.9; q[3] = q[9] = 1.5; q[4] = q[10] = -0.8; void t; }, 0.62) }],
+    "step.forward": [{ fps: 30, qpos: stand(30, () => {}, 0.793, [1, 0, 0, 0], (t) => 0.3 * t) }],
+    "getup.knees": [{ fps: 30, qpos: getup }],
+  });
+}
+const CLIPS = syntheticClips();
 const KICK_STRIKE: StrikeWindow[] = [{ limb: "r_foot", from: 0.35, to: 0.8, power: 1, name: "front kick", key: 0.55 }];
 const KICK_JSON = { fps: 30, root_pos: KICK.map((r) => r.slice(0, 3)), root_quat: KICK.map((r) => r.slice(3, 7)), joint_pos: KICK.map((r) => r.slice(7)) };
 const BROKEN_CLIPS: [unknown, number][] = [
@@ -104,8 +130,7 @@ arena.on((e: ArenaEvent) => {
   switch (e.type) {
     case "hit": {
       const d = arena.fighters[e.defender];
-      const ok = d.standing() || (d.stance === "falling" && e.knockdown);
-      if (!ok) fail(`hit landed on ${d.name} while ${d.stance}`);
+      if (!["idle", "stagger", "defend", "move"].includes(e.stance)) fail(`hit landed on ${d.name} while ${e.stance}`);
       if (arena.time - lastGetup[e.defender] < TUNE.grace - 0.021) fail(`hit on ${d.name} ${(arena.time - lastGetup[e.defender]).toFixed(2)} s after getting up (grace ${TUNE.grace})`);
       if (!finite3(e.point) || !finite3(e.dir) || !Number.isFinite(e.damage)) fail(`non-finite hit ${JSON.stringify(e)}`);
       break;
@@ -114,10 +139,32 @@ arena.on((e: ArenaEvent) => {
     case "down": pendingDown[e.who] = null; pendingUp[e.who] = arena.time; break;
     case "getup": pendingUp[e.who] = null; lastGetup[e.who] = arena.time; break;
     case "ko": pendingDown[e.who] = pendingUp[e.who] = null; break;
+    case "spawn": pendingDown[e.who] = pendingUp[e.who] = null; lastGetup[e.who] = -Infinity; break;
     case "failsafe":
       if (e.who === null) { pendingDown.fill(null); pendingUp.fill(null); } else { pendingDown[e.who] = pendingUp[e.who] = null; }
       break;
   }
+});
+
+// stance events form an unbroken chain per fighter, ending at the stance the fighter is in
+const lastTo: (string | null)[] = [null, null];
+arena.on((e) => {
+  if (e.type !== "stance") return;
+  if (lastTo[e.who] !== null && e.from !== lastTo[e.who]) fail(`${arena.fighters[e.who].name} stance chain broken: was ${lastTo[e.who]}, then ${e.from} -> ${e.to}`);
+  lastTo[e.who] = e.to;
+});
+
+// listeners that act on events, the way game code will: they must always see a settled fighter
+let poked = 0;
+if (!FIGHT) arena.on((e) => {
+  if (e.type === "stance") {
+    const f = arena.fighters[e.who];
+    const r = rng.next();
+    if (r < 0.02) { poked++; f.defend(pick(DEFENSES)); }
+    else if (r < 0.025) { poked++; f.opponent.throwPunch(pick(PUNCHES)); }
+    else if (r < 0.026) { poked++; f.knockOut(); }
+  }
+  if (e.type === "hit" && rng.next() < 0.01) { poked++; reset(); }
 });
 
 function check() {
@@ -127,6 +174,7 @@ function check() {
     if (!finite3(p)) fail(`${f.name} root not finite`);
     if (f.stanceT > LIMITS[f.stance] + 1e-6) fail(`${f.name} ${f.stance} for ${f.stanceT.toFixed(2)} s (limit ${LIMITS[f.stance]})`);
     if (f.stats.badTransitions) { fail(`${f.name} bad transition ${f.lastBadTransition}`); f.stats.badTransitions = 0; }
+    if (lastTo[i] !== null && lastTo[i] !== f.stance) { fail(`${f.name} is ${f.stance} but its last stance event said ${lastTo[i]}`); lastTo[i] = f.stance; }
     if (f.stats.errors) { fail(`${f.name} error: ${f.lastEvent}`); f.stats.errors = 0; }
     const d = f.debug();
     if (d.inflight && d.inflight.age > TUNE.askTimeout + 0.03) fail(`${f.name} request stuck ${d.inflight.age.toFixed(2)} s`);
@@ -151,9 +199,7 @@ let koAt = -1;
 let offlineUntil = -1;
 const pick = <T>(xs: readonly T[]) => xs[Math.min(xs.length - 1, Math.floor(rng.next() * xs.length))];
 const someone = (): Fighter => pick(arena.fighters);
-// a spawn starts the fighter over: no fall pending, and a get-up before it no longer protects it
-const forget = (i?: Who) => { for (const k of i === undefined ? [0, 1] : [i]) { pendingDown[k] = pendingUp[k] = null; lastGetup[k] = -Infinity; } };
-const reset = () => { arena.reset(); forget(); };
+const reset = () => arena.reset(); // "spawn" events clear what the checks expect
 
 function act() {
   const r = rng.next();
@@ -179,7 +225,6 @@ function act() {
     did("teleport");
     const f = someone(), o = world.rootPos(f.opponent.robot);
     f.spawn(o[0] + rng.range(-0.1, 0.1), o[1] + rng.range(-0.1, 0.1), rng.range(-3, 3));
-    forget(f.index);
   } else if (r < 0.0315) { did("nan"); world.data.qvel[Math.floor(rng.next() * world.data.qvel.length)] = Number.NaN; }
   else if (r < 0.0317) { did("huge"); world.data.qvel[Math.floor(rng.next() * world.data.qvel.length)] = 1e6; }
   else if (r < 0.0320) { did("offline"); offlineUntil = arena.time + rng.range(2, 8); arena.setMotion(null); }
@@ -188,8 +233,9 @@ function act() {
     did("brains");
     const i = pick([0, 1] as Who[]);
     arena.setBrain(i, rng.next() < 0.2 ? null : new Sparrer(arena.fighters[i], pick(styles), rng.int()));
-  } else if (r < 0.0329) { did("spawnNaN"); const f = someone(); f.spawn(Number.NaN, Number.POSITIVE_INFINITY, Number.NaN); forget(f.index); }
+  } else if (r < 0.0329) { did("spawnNaN"); const f = someone(); f.spawn(Number.NaN, Number.POSITIVE_INFINITY, Number.NaN); }
   else if (r < 0.0331) { did("hangAll"); offlineUntil = arena.time + rng.range(5, 9); arena.setMotion(HANG); } // every request hangs
+  else if (r < 0.0334) { did("clips"); offlineUntil = arena.time + rng.range(10, 25); arena.setMotion(new LayeredSource(CLIPS, chaos)); } // a clip library in front of the planner
 }
 
 // ---------- run ----------
@@ -212,7 +258,7 @@ while (arena.time < SECONDS) {
 
 const wall = (performance.now() - t0) / 1000;
 console.log(`\n${SECONDS} s simulated in ${wall.toFixed(0)} s wall (seed ${SEED})`);
-console.log("actions ", JSON.stringify(actions));
+console.log("actions ", JSON.stringify(actions), `listener pokes ${poked}`);
 console.log("events  ", JSON.stringify(count));
 if (chaos.counts) console.log("chaos   ", JSON.stringify(chaos.counts));
 for (const f of arena.fighters) console.log(`${f.name} stats`, JSON.stringify(f.stats));

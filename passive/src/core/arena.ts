@@ -47,6 +47,9 @@ export class Arena {
   readonly stats = { restores: 0, respawns: 0, errors: 0, clinches: 0, ropeTicks: 0, hits: 0, whiffs: 0 };
   lastError = "";
   private listeners: ArenaListener[] = [];
+  private queue: ArenaEvent[] = [];
+  private depth = 0;
+  private delivering = false;
   private snap: ReturnType<World["snapshot"]> | null = null;
   private lastRestoreT = -Infinity;
   private clinchFor = 0;
@@ -64,7 +67,8 @@ export class Arena {
     const names = opts.names ?? ["P1", "P2"];
     const seeds = opts.seeds ?? [7, 99];
     const emit = (e: ArenaEvent) => this.emit(e);
-    const make = (i: Who) => new Fighter(names[i], { index: i, world, robot: world.robots[i], policy, combat: this.combat, clock: () => this.time, emit, seed: seeds[i] });
+    const batch = <T>(fn: () => T): T => this.batch(fn);
+    const make = (i: Who) => new Fighter(names[i], { index: i, world, robot: world.robots[i], policy, combat: this.combat, clock: () => this.time, emit, batch, seed: seeds[i] });
     this.fighters = [make(0), make(1)];
     this.fighters[0].opponent = this.fighters[1];
     this.fighters[1].opponent = this.fighters[0];
@@ -83,9 +87,33 @@ export class Arena {
     return () => { this.listeners = this.listeners.filter((l) => l !== cb); };
   }
 
+  /**
+   * Runs a state change as one step: events raised inside are delivered when the outermost change
+   * is done, in order. Listeners never run in the middle of a change, so whatever they do (a KO, a
+   * reset, a new punch) starts from a settled state.
+   */
+  batch<T>(fn: () => T): T {
+    this.depth++;
+    try { return fn(); } finally { if (--this.depth === 0) this.deliver(); }
+  }
+
   private emit(e: ArenaEvent) {
-    for (const l of this.listeners) {
-      try { l(e); } catch (err) { this.stats.errors++; this.lastError = `listener: ${err instanceof Error ? err.message : String(err)}`; }
+    this.queue.push(e);
+    if (this.depth === 0) this.deliver();
+  }
+
+  private deliver() {
+    if (this.delivering) return; // a listener's own events join the loop below, in order
+    this.delivering = true;
+    try {
+      while (this.queue.length) {
+        const e = this.queue.shift()!;
+        for (const l of this.listeners) {
+          try { l(e); } catch (err) { this.stats.errors++; this.lastError = `listener: ${err instanceof Error ? err.message : String(err)}`; }
+        }
+      }
+    } finally {
+      this.delivering = false;
     }
   }
 
@@ -93,13 +121,16 @@ export class Arena {
   reset() {
     if (this.busy) { this.resetPending = true; return; }
     this.resetPending = false;
-    this.combat.clear();
-    SPAWNS.forEach(([x, y, yaw], i) => this.fighters[i].spawn(x, y, yaw));
-    this.hp = [this.maxHp, this.maxHp];
-    this.clinchFor = 0; this.inClinch = false;
-    this.forces = [];
-    this.world.clearForces();
-    this.snap = this.world.snapshot();
+    this.batch(() => {
+      this.combat.clear();
+      SPAWNS.forEach(([x, y, yaw], i) => this.fighters[i].spawn(x, y, yaw));
+      this.hp = [this.maxHp, this.maxHp];
+      this.clinchFor = 0; this.inClinch = false;
+      this.forces = [];
+      this.world.clearForces();
+      this.snap = this.world.snapshot();
+      this.emit({ type: "reset" });
+    });
   }
 
   /** Pelvis-to-pelvis distance (m). */
@@ -111,9 +142,7 @@ export class Arena {
   /** The rig's instant attacks: `attack` lands on fighter `target`, thrown from the other one. */
   hitInstant(target: Who, attack: Attack, scale = 1) {
     const d = this.fighters[target];
-    const r = d.hitInstant(attack, this.world.rootPos(d.opponent.robot), scale);
-    if (r.result.landed) this.scoreHit(r.impact, d, r.result);
-    return r;
+    return this.batch(() => d.hitInstant(attack, this.world.rootPos(d.opponent.robot), scale, (imp, res) => this.scoreHit(imp, d, res)));
   }
 
   private scoreHit(imp: Impact, target: Fighter, res: HitResult) {
@@ -122,7 +151,7 @@ export class Arena {
     const i = target.index;
     const damage = Math.max(0, imp.impulse) * DAMAGE[imp.zone] * (res.blocked ? DAMAGE.blocked : 1) * (imp.counter ? DAMAGE.counter : 1);
     this.hp[i] = Math.max(0, this.hp[i] - (Number.isFinite(damage) ? damage : 0));
-    this.emit({ type: "hit", attacker: imp.attacker?.index ?? null, defender: i, name: imp.name, zone: imp.zone, point: imp.point, dir: imp.dir, impulse: imp.impulse, damage, hp: this.hp[i], blocked: res.blocked, counter: imp.counter, knockdown: res.knockdown });
+    this.emit({ type: "hit", attacker: imp.attacker?.index ?? null, defender: i, name: imp.name, zone: imp.zone, point: imp.point, dir: imp.dir, impulse: imp.impulse, damage, hp: this.hp[i], blocked: res.blocked, counter: imp.counter, knockdown: res.knockdown, stance: target.stance });
     if (this.autoKO && this.hp[i] <= 0 && target.stance !== "ko") target.knockOut();
   }
 
@@ -134,7 +163,7 @@ export class Arena {
       const dt = SUBSTEPS * this.world.dt;
       for (const b of this.brains) if (b) { try { b.think(this.time, dt); } catch (e) { this.error(e, "brain"); } }
       for (const f of this.fighters) { try { await f.tick(); } catch (e) { this.error(e, f.name); } }
-      try { this.combat.step(this.time); } catch (e) { this.error(e, "combat"); }
+      try { this.batch(() => this.combat.step(this.time)); } catch (e) { this.error(e, "combat"); }
       try { this.referee(dt); } catch (e) { this.error(e, "referee"); this.forces = []; }
       const t0 = this.world.data.time;
       try {
@@ -148,7 +177,7 @@ export class Arena {
       this.time += dt;
       this.ticks++;
       // MuJoCo resets its data itself when the simulation goes unstable (time drops back to 0)
-      if (this.world.unstable() || this.world.data.time < t0) this.recover();
+      if (this.world.unstable() || this.world.data.time < t0) this.batch(() => this.recover());
       else if (this.ticks % 25 === 0) this.snap = this.world.snapshot();
     } catch (e) {
       this.error(e, "tick");

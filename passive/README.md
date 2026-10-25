@@ -67,6 +67,7 @@ Keys:
   - KOs, resets, teleporting one fighter into the other
   - NaN and huge-velocity injections, bad arguments
   - the motion source going offline or hanging
+  - a synthetic clip library standing in for Kimodo clips
   - switching hit modes
 
   The motion source also drops, delays, hangs, throws and corrupts its answers. Invariants are
@@ -77,6 +78,8 @@ Keys:
   - nothing piles up
   - hits only land on hittable fighters, never inside the grace period after a get-up
   - every fall is followed by a get-up
+  - each fighter's stance events form an unbroken chain
+  - listeners that punch, defend, KO or reset in response to events can't break anything
   - no errors and no unhandled rejections
 
   Add `--fight` to just watch the two AIs fight with a well-behaved planner.
@@ -195,7 +198,9 @@ Impact strength:
   - A block stops hits that reach the forearms, or that come from the front (within ±75°) and
     aren't low.
   - A blocked hit pushes 0.3x, takes 0.2x balance and does 0.12x damage.
-- **Dodges** are rules in both modes, and the body acts them out.
+- **Dodges** are rules in both modes, and the body acts them out, measured from the line to the
+  opponent. From a standstill, a slip moves the head 12-22 cm sideways and a duck drops it about
+  15 cm.
   - A slip or a step back evades everything while it lasts.
   - A duck evades head shots.
   - A jump evades leg strikes.
@@ -252,7 +257,10 @@ A full assisted lift is the fallback in these cases:
 const arena = new Arena(world, policy, { names: ["P1", "P2"], hp: 100, autoKO: true });
 arena.setMotion(new LayeredSource(await ClipSource.fetch("/clips"), new PlannerSource(new HttpPlanner())));
 arena.reset();
-arena.on((e) => { /* hit, whiff, stagger, knockdown, fall, down, getup, ko, defend, move, stance, clinch, failsafe */ });
+arena.on((e) => { /* hit, whiff, stagger, knockdown, fall, down, getup, ko, defend, move, stance, spawn, reset, clinch, failsafe */ });
+// Events arrive after the change that caused them is complete, in order. A hit comes before the
+// reaction it causes (stagger, knockdown or ko); hit.stance is the stance it landed in. Listeners
+// may act right away: they always see a settled fighter.
 await arena.tick();                                  // every 20 ms (sim time = arena.time)
 
 const [p1, p2] = arena.fighters;

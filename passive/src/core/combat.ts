@@ -50,6 +50,7 @@ export class Combat {
   /** rules mode: farther than this from every hurt volume at the key time, it misses (m). */
   rulesReach = 0.45;
   private live: Live[] = [];
+  /** Called for every landed hit, after the push and before the defender's reaction. */
   onHit: (imp: Impact, target: Fighter, res: HitResult) => void = () => {};
   /** closest: nearest the limb got to a hurt volume (m; below 0 it touched, too slowly to hurt). */
   onWhiff: (attacker: Fighter, name: string, reason: WhiffReason, closest: number) => void = () => {};
@@ -119,8 +120,7 @@ export class Combat {
       speed, impulse: l.w.power * ZONE_IMPULSE[zone] * s, poise: l.w.power * ZONE_POISE[zone] * s,
       counter: d.isCommitted(),
     };
-    const res = d.receiveHit(imp);
-    this.onHit(imp, d, res);
+    d.receiveHit(imp, (res) => this.onHit(imp, d, res));
   }
 
   step(t: number) {
@@ -186,8 +186,7 @@ export class Combat {
         guard,
       };
       l.done = true;
-      const res = d.receiveHit(imp);
-      this.onHit(imp, d, res);
+      d.receiveHit(imp, (res) => this.onHit(imp, d, res));
     }
     this.live = this.live.filter((l) => !l.done);
   }
