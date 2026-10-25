@@ -155,7 +155,16 @@ function toLobby() {
   phase = "lobby"; phaseT = 0; clock = RULES.roundSeconds; winner = null;
   brainsLive = false; syncBrains();
   arena.reset();
-  hud.show(`Room ${link!.code}`, "Waiting for players", 1e9);
+  lobbyReady = false; lobbyBanner();
+}
+/** The lobby banner: who has joined, and once both have, how to start. No auto-start: players forge
+ *  their spells on their phones first, then Enter on this screen starts the duel. */
+let lobbyReady = false;
+function lobbyBanner() {
+  const seat = (i: Who) => (seats[i]?.connected ? `${seats[i]!.nickname} joined` : "waiting…");
+  if (lobbyReady) hud.show(`${seats[0]?.nickname ?? ROSTER[0].name} vs ${seats[1]?.nickname ?? ROSTER[1].name}`,
+    "Forge your spells on your phones, then press Enter to fight", 1e9);
+  else hud.show(`Room ${link!.code}`, `${ROSTER[0].name}: ${seat(0)}  ·  ${ROSTER[1].name}: ${seat(1)}`, 1e9);
 }
 
 function endRound(w: Who | null, how: "ko" | "time") {
@@ -180,10 +189,10 @@ function endRound(w: Who | null, how: "ko" | "time") {
 function flow(dtSim: number, dtReal: number) {
   phaseT += dtReal;
   if (phase === "lobby") {
-    // the match starts 2 s after both seats are filled (or one, with the AI filling the other)
+    // ready once both seats are filled (or one, with the AI filling the other); Enter starts the match
     const seated = seats.filter((s) => s?.connected).length;
-    if (seated === 2 || (fillAi && seated === 1)) { if (phaseT > 2) { hud.hideBanner(); newMatch(); } }
-    else phaseT = 0;
+    const ready = seated === 2 || (fillAi && seated === 1);
+    if (ready !== lobbyReady) { lobbyReady = ready; lobbyBanner(); }
   } else if (phase === "intro") {
     if (phaseT > 1.8 && !fightShown) { fightShown = true; hud.show("Fight!", "", 0.9, "fight"); director.shake(0.25); }
     if (phaseT > RULES.introS) { phase = "fight"; phaseT = 0; brainsLive = true; syncBrains(); }
@@ -207,7 +216,7 @@ function flow(dtSim: number, dtReal: number) {
     }
   } else if (phase === "over" && phaseT > RULES.victoryS) {
     // a rematch while both phones are still here; otherwise wait for players
-    if (online && seats.filter((s) => s?.connected).length < (fillAi ? 1 : 2)) toLobby(); else newMatch();
+    if (online) toLobby(); else newMatch();  // back to the lobby: forge new spells between matches
   }
   hud.clock(phase === "intro" ? RULES.roundSeconds : clock, round);
 }
@@ -346,12 +355,14 @@ function onRoom(m: ServerMsg) {
       const i = P(m.player);
       seats[i] = { nickname: m.nickname, character: m.character, connected: true };
       aiOn[i] = false; syncBrains();
+      if (phase === "lobby") lobbyBanner();
       return;
     }
     case "leave": {
       const i = P(m.player);
       if (seats[i]) seats[i]!.connected = false;
       if (fillAi) { aiOn[i] = true; syncBrains(); }
+      if (phase === "lobby") lobbyBanner();
       return;
     }
     case "tap": {
