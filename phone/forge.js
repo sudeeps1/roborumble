@@ -22,6 +22,7 @@ $("recBtn").onclick = record;
 $("redoRec").onclick = () => step("record");
 $("redoAll").onclick = async () => { recorded = null; step("record"); await startCamera(); };
 $("forgeBtn").onclick = forgeIt;
+$("spellName").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); forgeIt(); } });
 $("keepBtn").onclick = keep;
 
 async function openForge() {
@@ -143,7 +144,7 @@ async function record() {
   const secs = (performance.now() - r.start) / 1000;
   if (r.frames.length < 20) { hint("The forge lost sight of you. Step back so your whole body fits, then try again."); $("recBtn").disabled = false; return; }
   recorded = { landmarks: r.frames, fps: Math.round((r.frames.length / secs) * 10) / 10 };
-  hint(`Captured ${r.frames.length} frames of your move. Now give it a name worthy of legend.`);
+  hint("Got your move! Type a name for it, then tap Forge it.");
   step("name");
   $("spellName").focus();
 }

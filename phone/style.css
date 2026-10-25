@@ -212,3 +212,8 @@ h2 { font-size: 17px; }
 .spell .ty, .spell .meta, .spell .star { display: none; }
 .spell.cooling::after { display: none; }
 .empty { flex: 1; padding: 12px; }
+
+/* ---- simple Forge: the camera box never pushes the buttons off screen ---- */
+.forge .stage { width: min(100%, calc(56vh * 3 / 4)); }
+.forge:has(#stepName:not(.hidden)) .stage { display: none; }  /* naming: just the name box and the button */
+.wild { display: none; }  /* keeps the default blend of your acting and the name */

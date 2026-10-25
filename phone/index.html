@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:ital,wght@0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <div class="sky"></div>
@@ -87,8 +87,8 @@
     </div>
 
     <div id="stepName" class="hidden">
-      <label class="flabel" for="spellName">Name your spell</label>
-      <input id="spellName" maxlength="40" autocomplete="off" placeholder="Fireball, Gorilla Smash…">
+      <label class="flabel" for="spellName">Type a name for your spell</label>
+      <input id="spellName" maxlength="40" autocomplete="off" enterkeyhint="go" placeholder="Fireball, Gorilla Smash…">
       <div class="wild">
         <span>Follow my acting</span>
         <input id="wild" type="range" min="0" max="1" step="0.05" value="0.6">
@@ -107,6 +107,6 @@
 
   <div class="toast" id="toast"></div>
   <script src="app.js?v=9"></script>
-  <script type="module" src="forge.js?v=10"></script>
+  <script type="module" src="forge.js?v=11"></script>
 </body>
 </html>
