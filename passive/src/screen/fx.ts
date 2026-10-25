@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Arena } from "../core/arena.ts";
 import type { ArenaEvent, Who } from "../core/events.ts";
-import type { Limb } from "../core/body.ts";
+import { LIMBS, type Limb } from "../core/body.ts";
 import type { MoveSpec } from "../core/spells.ts";
 
 /** Per spell type: white-hot core, glow, sparks. The HUD uses the same table. */
@@ -348,7 +348,8 @@ export class Fx {
         const spec = this.spells(e.name);
         if (!spec) return;
         const o = this.orbs[e.who];
-        o.on = true; o.type = spec.type ?? "physical"; o.limb = spec.hitJoint ?? "r_hand"; o.level = 0;
+        // a server move may name a joint the sim doesn't strike with ("chest"): the sim uses the right hand then
+        o.on = true; o.type = spec.type ?? "physical"; o.limb = LIMBS.includes(spec.hitJoint as Limb) ? spec.hitJoint! : "r_hand"; o.level = 0;
         return;
       }
       case "stance":

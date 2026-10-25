@@ -16,10 +16,12 @@ import { SonicPolicy } from "../core/sonic.ts";
 import { STYLES, Sparrer } from "../core/spar.ts";
 import { type MoveSpec, specFromLibrary } from "../core/spells.ts";
 import { World } from "../core/world.ts";
+import { GameFx } from "../fx/adapter.ts";
 import { buildArena } from "./arena.ts";
 import { Director } from "./camera.ts";
 import { Fx, typeColors } from "./fx.ts";
 import { Hud, type SpellInfo } from "./hud.ts";
+import { type GameEvent, RoomLink, type ServerMotion, type ServerMove, type ServerMsg, roomCode, rowsFromMotion, serverUrl, specFromMove } from "./link.ts";
 import { portrait } from "./portrait.ts";
 import { Stage } from "./stage.ts";
 
@@ -76,6 +78,13 @@ await stage.loadCharacters(ROSTER.map((r) => r.url), ROSTER.map((r) => r.hue));
 const set = buildArena(stage);
 const fx = new Fx(arena, set.look, (n) => known.get(n));
 stage.scene.add(fx.root);
+// ?fx=game: the game's spell effects (src/fx, one look per effect tag) draw the spells and hits instead;
+// this screen's own effects keep the channeling aura and the dust of bodies hitting the floor
+const gameFx = params.get("fx") === "game" ? new GameFx(world, ROSTER.map((r) => Number.parseInt(r.color.slice(1), 16))) : null;
+if (gameFx) {
+  stage.scene.add(gameFx.root);
+  gameFx.track(() => arena.projectiles(), () => arena.time);
+}
 const director = new Director(stage.camera);
 const icons = await Promise.all(ROSTER.map((r, i) => portrait(r.url, r.hue, i ? "left" : "right", i ? 0x9cb8ff : 0xffb08a)));
 const hud = new Hud(document.getElementById("hud")!, ROSTER.map((r, i) => ({ name: r.name, title: r.title, color: r.color, portrait: icons[i] })));
@@ -90,7 +99,10 @@ const brains = arena.fighters.map((f, i) => {
   return s;
 });
 const demo = params.has("demo"); // a scripted bout (see flow): every kind of spell, both AIs off
-const aiOn = [params.get("ai") !== "0" && !demo, params.get("ai") !== "0" && !demo];
+// ?room: phones play the fighters (see "the room" below); ?fill=ai lets the AI play an empty seat
+const online = params.has("room");
+const fillAi = params.get("fill") === "ai";
+const aiOn = online ? [fillAi, fillAi] : [params.get("ai") !== "0" && !demo, params.get("ai") !== "0" && !demo];
 let brainsLive = false;
 function syncBrains() { brains.forEach((b, i) => arena.setBrain(i as Who, brainsLive && aiOn[i] ? b : null)); }
 
@@ -102,8 +114,8 @@ function cast(i: Who, spec: MoveSpec, qpos: number[][], fps = 30, isNew = false)
 }
 
 // ---------------------------------------------------------------- rounds
-type Phase = "intro" | "fight" | "ko" | "over";
-let phase: Phase = "intro", phaseT = 0, clock = RULES.roundSeconds, round = 1;
+type Phase = "lobby" | "intro" | "fight" | "ko" | "over";
+let phase: Phase = online ? "lobby" : "intro", phaseT = 0, clock = RULES.roundSeconds, round = 1;
 const wins: [number, number] = [0, 0];
 let winner: Who | null = null;
 let fightShown = false;
@@ -117,14 +129,23 @@ function startRound() {
   director.cut("intro");
   hud.wins(wins);
   hud.show(`Round ${round}`, round === 3 ? "Final round" : wins[0] + wins[1] === 0 ? `${ROSTER[0].name} vs ${ROSTER[1].name}` : "", 1.7);
+  tell({ kind: "round_start", round });
 }
-function newMatch() { wins[0] = wins[1] = 0; round = 1; startRound(); }
+function newMatch() { wins[0] = wins[1] = 0; round = 1; queues[0].length = queues[1].length = 0; startRound(); }
+/** Online, between matches: both fighters stand in the ring until both phones are seated. */
+function toLobby() {
+  phase = "lobby"; phaseT = 0; clock = RULES.roundSeconds; winner = null;
+  brainsLive = false; syncBrains();
+  arena.reset();
+  hud.show(`Room ${link!.code}`, "Waiting for players", 1e9);
+}
 
 function endRound(w: Who | null, how: "ko" | "time") {
   if (phase !== "fight") return;
   phase = "ko"; phaseT = 0; winner = w;
   if (w !== null) wins[w]++;
   hud.wins(wins);
+  tell({ kind: "round", winner: w === null ? null : ((w + 1) as 1 | 2) });
   brainsLive = false; syncBrains();
   if (how === "ko" && w !== null) {
     const loser = arena.fighters[1 - w];
@@ -139,7 +160,12 @@ function endRound(w: Who | null, how: "ko" | "time") {
 
 function flow(dtSim: number, dtReal: number) {
   phaseT += dtReal;
-  if (phase === "intro") {
+  if (phase === "lobby") {
+    // the match starts 2 s after both seats are filled (or one, with the AI filling the other)
+    const seated = seats.filter((s) => s?.connected).length;
+    if (seated === 2 || (fillAi && seated === 1)) { if (phaseT > 2) { hud.hideBanner(); newMatch(); } }
+    else phaseT = 0;
+  } else if (phase === "intro") {
     if (phaseT > 1.8 && !fightShown) { fightShown = true; hud.show("Fight!", "", 0.9, "fight"); director.shake(0.25); }
     if (phaseT > RULES.introS) { phase = "fight"; phaseT = 0; brainsLive = true; syncBrains(); }
   } else if (phase === "fight") {
@@ -156,9 +182,13 @@ function flow(dtSim: number, dtReal: number) {
         const w = arena.fighters[winner];
         director.cut("victory", { at: world.rootPos(w.robot), other: world.rootPos(w.opponent.robot) });
         hud.show(`${ROSTER[winner].name} wins`, ROSTER[winner].title, RULES.victoryS - 0.5, "victory");
+        tell({ kind: "match_end", winner: (winner + 1) as 1 | 2 });
       } else { round++; startRound(); }
     }
-  } else if (phase === "over" && phaseT > RULES.victoryS) newMatch();
+  } else if (phase === "over" && phaseT > RULES.victoryS) {
+    // a rematch while both phones are still here; otherwise wait for players
+    if (online && seats.filter((s) => s?.connected).length < (fillAi ? 1 : 2)) toLobby(); else newMatch();
+  }
   hud.clock(phase === "intro" ? RULES.roundSeconds : clock, round);
 }
 
@@ -180,7 +210,8 @@ function onScreen(p: ArrayLike<number>) {
 }
 
 arena.on((e: ArenaEvent) => {
-  fx.onEvent(e);
+  if (link) publish(e);
+  if (gameFx) { gameFx.event(e); if (e.type === "reset") fx.onEvent(e); } else fx.onEvent(e);
   switch (e.type) {
     case "hit": {
       hud.hp(e.defender, e.hp, arena.maxHp);
@@ -257,8 +288,130 @@ const api = {
   /** Freezes the fight (the camera keeps breathing): a freeze-frame, or a still to check. */
   pause(on: boolean) { paused = on; },
   newMatch,
+  /** The room (null offline): its code, where phones join, who sits where, the link's status, what the narrator said. */
+  get room() { return link && { code: link.code, joinUrl: link.joinUrl, status: link.status, seats, narration }; },
+  get phase() { return phase; },
+  /** Drops the room connection as a network blip would (it reconnects by itself): for tests. */
+  dropLink() { link?.drop(); },
+  /** A narrator line arrived (the server's Commentator): replace to speak or show it. */
+  onNarrate(text: string) { console.info(`narrator: ${text}`); },
 };
 Object.assign(globalThis, { __screen: api });
+
+// ---------------------------------------------------------------- the room: phones through the game server
+// The three devices: two phones and this screen, all through the game server (link.ts). Seated phones
+// play the fighters: a shouted move arrives as `play` (or `charge`, then `ready`, for a live wildcard),
+// a tap as `tap`. Each fighter has a short queue (QUEUE moves): the move at its head waits up to
+// MOVE_WAIT for the fighter to be free (a stagger, another move), then fizzles. A full queue drops its
+// oldest library move, never a live wildcard (the move a player just invented and waited for). The screen sends its state 10/s and every event that matters to the phones and narrator.
+interface SeatInfo { nickname: string; character?: string; connected: boolean }
+const seats: [SeatInfo | null, SeatInfo | null] = [null, null];
+const MOVE_WAIT = 2500; // ms
+const QUEUE = 2;
+interface Queued { spec: MoveSpec; qpos: number[][]; fps: number; isNew: boolean; until: number }
+const queues: [Queued[], Queued[]] = [[], []];
+const charging: { job: string; until: number }[] = [];
+const TAP: Record<string, Defense> = { jump: "jump", dodge_left: "dodge.left", dodge_right: "dodge.right", block: "block" };
+const narration: string[] = [];
+const link: RoomLink | null = online ? new RoomLink(serverUrl(params), roomCode(params), onRoom, (s) => console.info(`room ${link?.code}: ${s}`)) : null;
+if (link) console.info(`room ${link.code}: phones join at ${link.joinUrl}`);
+
+function onRoom(m: ServerMsg) {
+  switch (m.type) {
+    case "join": {
+      const i = P(m.player);
+      seats[i] = { nickname: m.nickname, character: m.character, connected: true };
+      aiOn[i] = false; syncBrains();
+      return;
+    }
+    case "leave": {
+      const i = P(m.player);
+      if (seats[i]) seats[i]!.connected = false;
+      if (fillAi) { aiOn[i] = true; syncBrains(); }
+      return;
+    }
+    case "tap": {
+      const kind = TAP[m.action];
+      if (kind && phase === "fight") arena.fighters[P(m.player)].defend(kind);
+      return;
+    }
+    case "play": return queueMove(P(m.player), m.move, m.motion, false);
+    case "charge": {
+      console.info(`room: player ${m.player} charging "${m.transcript ?? ""}" (job ${m.job})`);
+      charging[P(m.player)] = { job: m.job, until: performance.now() + 15000 };
+      api.channel(m.player, m.transcript || m.guess?.name || "…", m.guess?.type);
+      return;
+    }
+    case "ready": {
+      console.info(`room: player ${m.player} ready: ${m.move?.name} (${m.move?.source}, job ${m.job}, ${m.motion?.qpos?.length ?? 0} frames)`);
+      const i = P(m.player);
+      if (charging[i]?.job === m.job) { delete charging[i]; api.channel(m.player, null); }
+      return queueMove(i, m.move, m.motion, m.move?.source === "live");
+    }
+    case "narrate":
+      narration.push(m.text);
+      api.onNarrate(m.text);
+      return;
+    default: return;
+  }
+}
+
+function queueMove(i: Who, move: ServerMove, motion: ServerMotion | null, isNew: boolean) {
+  const rows = rowsFromMotion(motion);
+  if (!move || !rows) { tell({ kind: "fizzle", player: (i + 1) as 1 | 2, move: move?.name ?? "?", why: "no usable motion" }); return; }
+  const q = queues[i];
+  if (q.length >= QUEUE) {
+    const k = q.findIndex((m) => !m.isNew);
+    const dropped = q.splice(k >= 0 ? k : 0, 1)[0];
+    tell({ kind: "fizzle", player: (i + 1) as 1 | 2, move: dropped.spec.name, why: "replaced" });
+  }
+  q.push({ spec: specFromMove(move), ...rows, isNew, until: q.length ? Infinity : performance.now() + MOVE_WAIT });
+}
+
+/** Every frame: moves wait for their fighter; a wildcard that never came back stops glowing. */
+function serveRoom(now: number) {
+  queues.forEach((q, i) => {
+    const p = q[0];
+    if (!p) return;
+    const next = () => { q.shift(); if (q[0]) q[0].until = now + MOVE_WAIT; }; // the next move's wait starts now
+    if (phase === "fight" && cast(i as Who, p.spec, p.qpos, p.fps, p.isNew)) return next();
+    if (phase === "fight" && arena.fighters[i].stance === "move") p.until = Math.max(p.until, now + MOVE_WAIT); // its own move first
+    if (now > p.until) { next(); tell({ kind: "fizzle", player: (i + 1) as 1 | 2, move: p.spec.name, why: phase === "fight" ? "busy" : "not fighting" }); }
+  });
+  charging.forEach((c, i) => { if (c && now > c.until) { delete charging[i]; api.channel((i + 1) as 1 | 2, null); } });
+  if (now - stateAt >= 100) { stateAt = now; publishState(); }
+}
+let stateAt = 0;
+
+function tell(event: GameEvent) { link?.send({ type: "event", event }); }
+
+/** The sim's events, as the phones and the narrator know them (players 1 and 2). */
+function publish(e: ArenaEvent) {
+  switch (e.type) {
+    case "hit":
+      if (e.blocked) tell({ kind: "blocked", defender: (e.defender + 1) as 1 | 2, point: e.point });
+      else tell({ kind: "hit", attacker: ((e.attacker ?? 1 - e.defender) + 1) as 1 | 2, defender: (e.defender + 1) as 1 | 2, damage: Math.round(e.damage * 10) / 10, type: e.spellType ?? "physical", clean: !!e.clean, point: e.point, move: e.name });
+      return;
+    case "whiff": if (e.reason === "dodged") tell({ kind: "dodged", defender: (2 - e.attacker) as 1 | 2 }); return;
+    case "knockdown": case "fall": tell({ kind: "down", player: (e.who + 1) as 1 | 2 }); return;
+    case "ko": tell({ kind: "ko", loser: (e.who + 1) as 1 | 2 }); return;
+    case "move": if (known.has(e.name)) tell({ kind: "cast", player: (e.who + 1) as 1 | 2, move: e.name, new: fresh.has(e.name) }); return;
+    default: return;
+  }
+}
+
+const STATUS: Record<string, string> = { idle: "idle", move: "acting", stagger: "stunned", falling: "down", down: "down", rising: "down", ko: "ko" };
+function publishState() {
+  if (!link) return;
+  const player = (i: Who) => {
+    const f = arena.fighters[i];
+    const status = charging[i] ? "charging" : f.stance === "defend" ? (f.defenseKind() === "block" ? "blocking" : "dodging") : STATUS[f.stance] ?? "idle";
+    return { hp: Math.round(arena.hp[i] * 10) / 10, energy: 100, cooldowns: {}, status, poise: Math.round(f.poise * 100) / 100 };
+  };
+  const seat = (i: Who) => seats[i] && { nickname: seats[i]!.nickname, character: seats[i]!.character ?? ROSTER[i].id, connected: seats[i]!.connected };
+  link.send({ type: "state", phase, round, timer: Math.max(0, Math.round(clock * 10) / 10), wins: { 1: wins[0], 2: wins[1] },
+    players: { 1: player(0), 2: player(1) }, seats: { 1: seat(0), 2: seat(1) } });
+}
 
 // keyboard: P1 Q W E R spells, A jab, S hook, D block, F slip, Z a "new" spell after channeling;
 // P2 U I O P spells, J jab, K hook, L block, ; slip, M the same. 1/2 AI on/off, Enter new match,
@@ -326,10 +479,12 @@ function frame(now: number) {
   acc += dt;
   if (!busy) void physics();
   flow(dt, paused ? 0 : real);
+  if (link) serveRoom(now);
   const [a, b] = arena.fighters;
   const pa = world.rootPos(a.robot), pb = world.rootPos(b.robot);
   stage.sync(dt, [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2]);
   fx.update(dt);
+  gameFx?.update(real, stage.camera);
   set.update(now / 1000, dt);
   director.update(real, { pelvis: [pa, pb], down: [downish(a), downish(b)], extras: arena.projectiles().map((p) => p.pos) });
   arena.fighters.forEach((f, i) => {
@@ -344,5 +499,5 @@ function frame(now: number) {
   if (++frames === Number(params.get("readyAfter") ?? 30)) document.documentElement.dataset.ready = "1"; // for mockups/capture.mjs
 }
 let frames = 0;
-startRound();
+if (online) toLobby(); else startRound();
 requestAnimationFrame(frame);
