@@ -54,6 +54,8 @@ export class Combat {
   /** rules mode: farther than this from every hurt volume at the key time, it misses (m). */
   rulesReach = 0.45;
   private live: Live[] = [];
+  /** Attackers whose strike connected this tick, while those hits are being applied. */
+  private landing = new Set<Fighter>();
   /** Called for every landed hit, after the push and before the defender's reaction. */
   onHit: (imp: Impact, target: Fighter, res: HitResult) => void = () => {};
   /** closest: nearest the limb got to a hurt volume (m; below 0 it touched, too slowly to hurt). */
@@ -92,9 +94,9 @@ export class Combat {
   /** Has unresolved windows (winding up or live). */
   pending(f: Fighter): boolean { return this.live.some((l) => l.attacker === f && !l.done); }
 
-  /** A window of `f` is live right now. */
+  /** A window of `f` is live right now (or its strike is landing this very tick). */
   active(f: Fighter, t: number): boolean {
-    return this.live.some((l) => l.attacker === f && !l.done && t >= l.t0 + l.w.from && t <= l.t0 + l.w.to);
+    return this.landing.has(f) || this.live.some((l) => l.attacker === f && !l.done && t >= l.t0 + l.w.from && t <= l.t0 + l.w.to);
   }
 
   /** Limbs of `f` that can hurt right now (for the hitbox view). */
@@ -138,11 +140,17 @@ export class Combat {
       if (imp) { l.done = true; hits.push({ l, imp }); }
     }
     // phase 2: apply them. A strike found above lands even if its attacker is hit in this same
-    // tick: both connected at once.
-    for (const { l, imp } of hits) {
-      const d = l.target;
-      const res = d.receiveHit(imp, (r) => this.onHit(imp, d, r));
-      if (!res.landed) this.onWhiff(l.attacker, l.w.name, "out of range", l.closest); // went down to an earlier hit this tick
+    // tick: both connected at once. While they apply, their attackers count as mid-strike, so a
+    // light exchange is a trade (Fighter.receiveHit), whichever was armed first.
+    for (const { l } of hits) this.landing.add(l.attacker);
+    try {
+      for (const { l, imp } of hits) {
+        const d = l.target;
+        const res = d.receiveHit(imp, (r) => this.onHit(imp, d, r));
+        if (!res.landed) this.onWhiff(l.attacker, l.w.name, "out of range", l.closest); // went down to an earlier hit this tick
+      }
+    } finally {
+      this.landing.clear();
     }
     this.live = this.live.filter((l) => !l.done);
   }

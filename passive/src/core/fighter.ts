@@ -454,7 +454,7 @@ export class Fighter {
 
   /** The rig's instant attacks (attacks.ts): a hit from `from` (world xy) with no fist involved. */
   hitInstant(a: Attack, from: ArrayLike<number>, scale = 1, scored?: (imp: Impact, res: HitResult) => void): InstantHit {
-    if (!a || !(a.force >= 0) || !(a.duration > 0) || !Array.isArray(a.offset) || a.offset.length < 3 || !a.offset.every(Number.isFinite) || !from || !Number.isFinite(from[0]) || !Number.isFinite(from[1])) {
+    if (!a || typeof a.body !== "string" || !(a.force >= 0) || !(a.duration > 0) || !Array.isArray(a.offset) || a.offset.length < 3 || !a.offset.every(Number.isFinite) || !from || !Number.isFinite(from[0]) || !Number.isFinite(from[1])) {
       return missedInstant("bad attack");
     }
     const body = this.robot.bodies.get(a.body) ?? this.robot.bodies.get("torso_link")!;
@@ -516,8 +516,9 @@ export class Fighter {
     if (this.stance === "ko") { this.ctl.active = false; this.ctl.hold = null; return; }
     this.assistOff();
     this.rise = freshRise();
-    // the stance comes from the body the rollback restored, not from before it
-    if (pose[2] > TUNE.upHeight && tiltOf([pose[3], pose[4], pose[5], pose[6]]) < 0.3) {
+    // the stance comes from the body the rollback restored, not from before it (a duck or a slip
+    // tilts a standing body well past 0.3 rad, so only a real topple counts as down)
+    if (pose[2] > TUNE.upHeight && tiltOf([pose[3], pose[4], pose[5], pose[6]]) < TUNE.fallTiltAbs) {
       this.ctl.active = true; this.ctl.hold = null; this.ctl.stiffness = 1;
       this.forceStance("idle");
       this.nextFootworkAt = 0;

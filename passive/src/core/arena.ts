@@ -6,7 +6,7 @@
 import type { Attack } from "./attacks.ts";
 import { Combat, type HitResult, type Impact } from "./combat.ts";
 import type { ArenaEvent, ArenaListener, Who } from "./events.ts";
-import { Fighter, type InstantHit, TUNE, missedInstant } from "./fighter.ts";
+import { Fighter, type InstantHit, missedInstant } from "./fighter.ts";
 import type { MotionSource } from "./motion.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SUBSTEPS, type SonicPolicy } from "./sonic.ts";
@@ -245,12 +245,7 @@ export class Arena {
     this.world.data.qvel.fill(0);
     this.world.data.qacc_warmstart?.fill?.(0);
     this.world.clearForces();
-    SPAWNS.forEach(([x, y, yaw], i) => {
-      const f = this.fighters[i];
-      const ko = f.stance === "ko";
-      f.spawn(x, y, yaw, TUNE.grace);
-      if (ko) f.knockOut();
-    });
+    SPAWNS.forEach(([x, y, yaw], i) => this.fighters[i].relocate(x, y, yaw)); // a KO'd body stays KO'd
     this.world.forward();
     this.snap = this.world.snapshot();
     this.emit({ type: "failsafe", who: null, what: "physics blew up: both fighters respawned" });

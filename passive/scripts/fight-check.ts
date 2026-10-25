@@ -75,7 +75,7 @@ for (const mode of ["contact", "rules"] as const) {
 }
 arena.combat.mode = "contact";
 
-console.log("--- rules mode: both throw the same straight at once, from inside an event");
+console.log("--- rules mode: both throw the same straight at once, from inside a mid-tick event");
 {
   // a right straight: arm comes up and out, 0.8 s at 30 fps, key at frame 12
   const rows: number[][] = [];
@@ -84,30 +84,32 @@ console.log("--- rules mode: both throw the same straight at once, from inside a
     const q = [-0.312, 0, 0, 0.669, -0.363, 0, -0.312, 0, 0, 0.669, -0.363, 0, 0, 0, 0, 0.2, 0.2, 0, 0.6, 0, 0, 0, 0.2 - 1.6 * u, -0.2, 0, 0.6 - 0.7 * u, 0, 0, 0];
     rows.push([0, 0, 0.793, 1, 0, 0, 0, ...q]);
   }
-  const strike = [{ limb: "r_hand" as const, from: 0.25, to: 0.55, power: 1, name: "straight", key: 0.4 }];
   arena.combat.mode = "rules";
-  await fresh();
   arena.setMotion(null); // no footwork: they stand where they're put
-  p1.spawn(-0.33, 0, 0); p2.spawn(0.33, 0, Math.PI);
-  await run(0.6);
-  const hitsBefore = events.length;
-  // start both when P2 changes stance (as round flow would, mid-tick): they must still start together
-  let started = false;
-  const off = arena.on((e) => {
-    if (started || e.type !== "defend") return;
-    started = true;
-    p1.playMove(rows, 30, strike, "straight");
-    p2.playMove(rows, 30, strike, "straight");
-  });
-  p2.defend("block", 0.2); // its stance change triggers the listener; 0.2 s later both are free again
-  await run(0.3);
-  if (!started) { p1.playMove(rows, 30, strike, "straight"); p2.playMove(rows, 30, strike, "straight"); }
-  await run(2, () => p1.stance !== "move" && p2.stance !== "move");
-  off();
+  for (const [power, light] of [[1, false], [0.4, true]] as const) {
+    const strike = [{ limb: "r_hand" as const, from: 0.25, to: 0.55, power, name: "straight", key: 0.4 }];
+    await fresh();
+    p1.spawn(-0.33, 0, 0); p2.spawn(0.33, 0, Math.PI);
+    await run(0.6);
+    const before = events.length;
+    // P2's block ends inside its own tick, after P1 has already ticked: both moves start from there
+    let started = false, stagger = 0;
+    const off = arena.on((e) => {
+      if (e.type === "stagger") stagger++;
+      if (started || e.type !== "stance" || e.who !== 1 || e.from !== "defend") return;
+      started = true;
+      p1.playMove(rows, 30, strike, "straight");
+      p2.playMove(rows, 30, strike, "straight");
+    });
+    p2.defend("block", 0.2);
+    await run(2, () => started && p1.stance !== "move" && p2.stance !== "move");
+    off();
+    const got = events.slice(before).filter((e): e is Extract<ArenaEvent, { type: "hit" }> => e.type === "hit");
+    const interrupted = events.slice(before).filter((e) => e.type === "whiff" && e.reason === "interrupted");
+    expect(started && got.length === 2 && interrupted.length === 0, `power ${power}: both straights land, neither is cancelled (${got.length} hits, ${interrupted.length} interrupted)`);
+    if (light) expect(stagger === 0, `light straights trade: nobody staggers (${stagger})`);
+  }
   arena.setMotion(new PlannerSource(planner));
-  const got = events.slice(hitsBefore).filter((e): e is Extract<ArenaEvent, { type: "hit" }> => e.type === "hit");
-  const interrupted = events.slice(hitsBefore).filter((e) => e.type === "whiff" && e.reason === "interrupted");
-  expect(got.length === 2 && interrupted.length === 0, `both straights land, neither is cancelled (${got.length} hits, ${interrupted.length} interrupted)`);
   arena.combat.mode = "contact";
 }
 
