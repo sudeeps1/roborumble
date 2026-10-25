@@ -113,3 +113,26 @@ html, body { margin: 0; height: 100%; background: #1d1f2e; overflow: hidden; col
 .join-qr canvas { width: min(15rem, 28vh) !important; height: auto !important; border-radius: 0.4rem; }
 .join-qr-label { font-weight: 800; font-size: 1.15rem; letter-spacing: 0.14em; text-transform: uppercase; }
 .join-qr-url { font-size: 0.8rem; opacity: 0.75; }
+
+/* ---------- who's who: name tags over the heads, heard -> cast lines ---------- */
+.nametag { position: absolute; left: 0; top: 0; will-change: transform; translate: -50% -100%; margin-top: -.6vh;
+  font: 700 3.4vh/1 var(--round); letter-spacing: .14em; text-transform: uppercase; color: #fff;
+  padding: .55vh 1.4vh .45vh; border-radius: 99vh; white-space: nowrap;
+  background: color-mix(in srgb, var(--team) 78%, #0000); box-shadow: 0 0 0 .25vh color-mix(in srgb, var(--team) 40%, #fff), 0 0 2.2vh color-mix(in srgb, var(--team) 70%, transparent), 0 .4vh 1vh #0006;
+  text-shadow: 0 .15vh .3vh #0007; opacity: 0; transition: opacity .3s; }
+.nametag.on { opacity: 1; }
+.nametag::after { content: ""; position: absolute; left: 50%; bottom: -.9vh; translate: -50% 0; border: .5vh solid transparent; border-top: .6vh solid color-mix(in srgb, var(--team) 78%, #0000); }
+.heard { position: absolute; left: 0; top: 0; will-change: transform; translate: -50% -100%; margin-top: -6.4vh;
+  display: flex; align-items: baseline; gap: .8vh; white-space: nowrap; padding: .5vh 1.4vh; border-radius: 1.2vh;
+  background: #1b1726b8; box-shadow: 0 0 0 .2vh color-mix(in srgb, var(--team) 60%, transparent); animation: pop .35s cubic-bezier(.2, 1.5, .4, 1); transition: opacity .3s; }
+.heard.out { opacity: 0; }
+.heard .by { font: 700 1.8vh/1 var(--round); letter-spacing: .12em; text-transform: uppercase; color: var(--team); }
+.heard .said { font: 500 2.4vh/1.1 var(--round); color: #e9e2d2; font-style: italic; }
+.heard .arrow { font: 700 2.4vh/1 var(--round); color: var(--gold); }
+.heard .became { font: 700 2.6vh/1.1 var(--serif); color: var(--cream); }
+.heard.new .became { color: #bfe3ff; text-shadow: 0 0 1vh #8fc4ff; }
+.heard.fizzle .became { color: #ffb4a6; }
+.callout { margin-top: -11vh; }
+.channel { margin-top: -6.4vh; }
+.callout .by { font: 700 1.9vh/1 var(--round); letter-spacing: .16em; text-transform: uppercase; color: var(--team); text-shadow: 0 .15vh .3vh #000a; margin-bottom: .3vh; }
+.plate.seated .name { font-size: 4.2vh; color: color-mix(in srgb, var(--team) 35%, #fff); letter-spacing: .08em; }
