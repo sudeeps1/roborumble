@@ -20,7 +20,6 @@ import { STYLES, Sparrer } from "../core/spar.ts";
 import { type MoveSpec, specFromLibrary } from "../core/spells.ts";
 import { World } from "../core/world.ts";
 import { GameFx } from "../fx/adapter.ts";
-import { Summons } from "./summon.ts";
 import { buildArena, buildForestArena } from "./arena.ts";
 import { Director } from "./camera.ts";
 import { Fx, typeColors } from "./fx.ts";
@@ -99,8 +98,6 @@ stage.scene.add(fx.root);
 // the game's spell effects (src/fx, one look per effect tag) draw the spells and hits (?fx=soft: this
 // screen's softer ones); this screen's own effects keep the channeling aura and the dust of bodies hitting the floor
 const gameFx = params.get("fx") !== "soft" ? new GameFx(world, ROSTER.map((r) => Number.parseInt(r.color.slice(1), 16))) : null;
-const summons = new Summons(stage.scene, arena); // every spell conjures what it names
-(window as unknown as { __summons: Summons }).__summons = summons;
 if (gameFx) {
   stage.scene.add(gameFx.root);
   gameFx.track(() => arena.projectiles(), () => arena.time);
@@ -264,7 +261,6 @@ function onScreen(p: ArrayLike<number>) {
 arena.on((e: ArenaEvent) => {
   if (e.type === "move" || e.type === "defend" || e.type === "hit" || e.type === "release") director.wake(); // the idle orbit stops
   if (link) publish(e);
-  summons.event(e as never);
   if (gameFx) { gameFx.event(e); if (e.type === "reset") fx.onEvent(e); } else fx.onEvent(e);
   switch (e.type) {
     case "hit": {
@@ -598,7 +594,6 @@ function frame(now: number) {
   stage.sync(dt, [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2]);
   fx.update(dt);
   gameFx?.update(real, stage.camera);
-  summons.update(dt);
   set.update(now / 1000, dt);
   if (shotOn) director.follow(world.rootPos(arena.fighters[shotOn[0]].robot), world.rootPos(arena.fighters[shotOn[1]].robot));
   director.update(real, { pelvis: [pa, pb], down: [downish(a), downish(b)], extras: arena.projectiles().map((p) => p.pos) });
