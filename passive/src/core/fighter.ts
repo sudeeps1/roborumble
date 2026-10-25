@@ -187,6 +187,8 @@ export class Fighter {
   private gen = 0;
   private reqToken = 0;
   private inflight: Inflight | null = null;
+  /** s the motion source took to answer recent step-in asks (stepIn asks the next step that early) */
+  private stepLag = 0.5;
   private nextFootworkAt = 0;
   private sawAttack = false;
   private circleDir = 1;
@@ -972,15 +974,21 @@ export class Fighter {
    * within `range` (and not drifting apart: an attack started while separating falls short), out of
    * patience (TUNE.approachTime of actual stepping) or past `maxT` all told. Standing still waiting
    * for a late step plan (a busy planner) doesn't use up the patience. The next step is asked for
-   * 0.6 s before the current one runs out, so a plan that takes a few hundred ms arrives in time.
+   * as long before the current one runs out as the last step took to arrive (stepLag): a plan that
+   * takes a few hundred ms arrives in time, and an instant answer (a step clip) doesn't cut the
+   * step before it short.
    */
   private stepIn(a: Approach, dt: number, range: number, maxT: number): boolean {
     if (this.inflight && this.ref.remaining === 0) a.waitT += dt; else a.approachT += dt;
     const ready = this.distanceTo(this.opponent) <= range && this.closingSpeed() > -0.15;
     if (ready || a.approachT >= TUNE.approachTime || a.approachT + a.waitT >= maxT) return false;
-    if (!this.inflight && (!a.stepping || this.ref.remaining < 30)) {
+    const lead = clamp(Math.round((this.stepLag + 0.06) * REF_HZ), 3, 30); // frames
+    if (!this.inflight && (!a.stepping || this.ref.remaining < lead)) {
       a.stepping = true;
-      this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 });
+      const asked = this.clock();
+      this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 }, (clip) => {
+        if (clip) this.stepLag = 0.5 * this.stepLag + 0.5 * Math.min(1, this.clock() - asked);
+      });
     }
     return true;
   }
