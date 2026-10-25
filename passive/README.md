@@ -45,12 +45,13 @@ Headless checks (Node, no browser):
 - **falling:** pelvis tilt over 55° or pelvis below 0.45 m. SONIC lets go, and the joints go soft
   in a brace pose (arms forward, knees bent), so it reaches out instead of flailing.
 - **down:** on the floor for 1.1 s.
-- **rising:** a staged get-up.
-  1. Onto its knees: the planner's `kneelTwoLeg`, planned from the pose it actually landed in.
-     SONIC does this alone.
-  2. Standing up: the planner's `idle`, with invisible help carrying up to 60% of body weight.
-     SONIC can't stand straight up from kneeling on its own yet.
-  3. If that fails twice, a full assisted lift (pelvis lift plus an upright torque).
+- **rising:** a staged get-up, each stage planned from the pose the robot actually reached.
+  1. Onto its knees: the planner's `kneelTwoLeg`. SONIC does this alone.
+  2. Standing up: the planner's `idle`, with invisible help carrying 15% of body weight.
+  3. If a stage stalls, it is replanned from the current pose with 30% more help each time.
+     The limbs always follow the planner's human get-up motion, never a lift.
+  In a sweep over six knockdowns (haymaker, sweep, shove, uppercut, hook, body shot) it stood
+  up 6/6 times in 2.7-3.8 s. A full assisted lift remains only as the no-planner fallback.
 - **ko:** limp and stays down. **move:** playing a clip handed over by the fight code.
 
 ### Attack tiers (0.1 s pulse at the torso)
@@ -68,8 +69,8 @@ p1.stance;                                   // "idle" | "stagger" | "falling" |
 ```
 
 ## Not done yet
-- The final stand-up still gets light help. Getting SONIC up from kneeling on its own needs better
-  stage targets or a get-up clip it can follow.
+- The stand-up still gets light help (15% of body weight). Getting SONIC up from kneeling with no
+  help needs better stage targets or a get-up clip it can follow.
 - No two-robot body contact tuning. The robots can collide, but hits are force pulses, not fists.
 - `playMove` isn't tested with real Kimodo clips yet.
 

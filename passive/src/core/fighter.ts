@@ -29,11 +29,12 @@ const RANGE = [1.1, 1.6];    // preferred distance to the opponent (m)
 // Getting up in stages, each planned from the pose the robot actually reached. SONIC gets itself
 // from the floor onto its knees; for the stand-up it follows the planner with light invisible help
 // (one big "stand up" plan straight from the floor is too fast for it to follow on its own).
-const RISE = [
-  { label: "onto knees", mode: Mode.kneelTwoLeg, height: 0.3, reach: 0.21 },
-  { label: "standing up", mode: Mode.idle, height: -1, reach: UP_HEIGHT },
+export const RISE = [
+  { label: "onto knees", mode: Mode.kneelTwoLeg as number, height: 0.3, reach: 0.21 },
+  { label: "standing up", mode: Mode.idle as number, height: -1, reach: UP_HEIGHT },
 ];
-const STAND_HELP = 0.6; // max share of body weight the strings carry during the planned stand-up
+/** Max share of body weight the strings carry during the planned stand-up. */
+export const TUNING = { standHelp: 0.15, retryHelp: 0.3 };
 
 interface Pulse { body: number; local: number[]; force: number[]; left: number }
 
@@ -283,7 +284,7 @@ export class Fighter {
     this.planInFlight = true;
     this.stageT = 0;
     this.intent = `getting up: ${st.label}`;
-    if (this.riseStage === RISE.length - 1) { this.assistCap = STAND_HELP; this.assist = Math.max(this.assist, 0.01); }
+    if (this.riseStage === RISE.length - 1) { this.assistCap = Math.max(this.assist > 0 ? this.assistCap : 0, TUNING.standHelp); this.assist = Math.max(this.assist, 0.01); }
     try {
       const flat = await this.planner.plan({ context: this.contextFromRobot(), mode: st.mode, height: st.height, movement: [0, 0, 0], facing: [Math.cos(yaw), Math.sin(yaw), 0], speed: -1 });
       if (this.stance !== "rising") return;
@@ -321,12 +322,13 @@ export class Fighter {
       void this.planStage();
       return;
     }
-    // plan ran out without getting there: try this stage again from where it is now
+    // plan ran out without getting there: plan this stage again from where it is now, with a bit
+    // more invisible help each time, so the body still follows a human get-up instead of levitating
     if (this.ref.remaining === 0 && this.stageT > 0.8) {
-      if (++this.stageTries > 2) {
-        if (this.riseStage > 0) { this.riseStage--; this.stageTries = 0; void this.planStage(); }
-        else this.startAssist(this.faceYaw(this.world.robotQpos(this.robot)));
-      } else void this.planStage();
+      this.stageTries++;
+      this.assistCap = Math.min(1, (this.assist > 0 ? this.assistCap : 0) + TUNING.retryHelp);
+      this.assist = Math.max(this.assist, 0.01);
+      void this.planStage();
     }
     if (this.stanceT > 14) this.startAssist(this.faceYaw(this.world.robotQpos(this.robot)));
   }
