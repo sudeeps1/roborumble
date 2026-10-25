@@ -284,7 +284,7 @@ export class Fx {
     for (let i = 0; i < FX.flashes; i++) this.flashes.push({ s: sprite(THREE.AdditiveBlending), life: 0, max: 1, size: 1 });
     for (let i = 0; i < FX.lights; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 3.5, 1.2); // soft falloff: a tint on the fighters, never a hot spot
-      l.visible = false;
+      // always "on" at intensity 0: a light turning on or off makes three.js recompile every material (a hitch per hit)
       this.root.add(l);
       this.glows.push({ l, life: 0, max: 1, peak: 1 });
     }
@@ -572,7 +572,7 @@ export class Fx {
       f.s.material.opacity = a;
     }
     for (const g of this.glows) {
-      if (g.life <= 0) { g.l.visible = false; g.l.intensity = 0; continue; }
+      if (g.life <= 0) { g.l.intensity = 0; continue; }
       g.life -= dt;
       g.l.intensity = g.peak * Math.max(0, g.life / g.max) ** 2;
     }
