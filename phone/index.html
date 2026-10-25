@@ -7,8 +7,9 @@
   <title>Infinite Fighter · Spellbook</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=8">
+  <!-- not render-blocking: if Google stalls, the page shows in Georgia instead of staying blank -->
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
   <div class="sky"></div>
@@ -88,7 +89,7 @@
 
     <div id="stepName" class="hidden">
       <label class="flabel" for="spellName">Name your spell</label>
-      <input id="spellName" maxlength="40" autocomplete="off" placeholder="Fireball, Gorilla Smash…">
+      <input id="spellName" maxlength="40" autocomplete="off" enterkeyhint="go" placeholder="Fireball, Gorilla Smash…">
       <div class="wild">
         <span>Follow my acting</span>
         <input id="wild" type="range" min="0" max="1" step="0.05" value="0.6">
@@ -100,13 +101,13 @@
 
     <div id="stepResult" class="hidden">
       <div class="fcard" id="fcard"></div>
-      <button id="keepBtn" class="gold">Keep it in my spellbook</button>
+      <button id="keepBtn" class="gold">Keep it ✦</button>
       <button id="redoAll" class="ghost">Redo</button>
     </div>
   </section>
 
   <div class="toast" id="toast"></div>
-  <script src="app.js?v=9"></script>
-  <script type="module" src="forge.js?v=8"></script>
+  <script src="app.js?v=10"></script>
+  <script type="module" src="forge.js?v=9"></script>
 </body>
 </html>

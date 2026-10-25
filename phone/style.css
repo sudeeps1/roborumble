@@ -156,3 +156,24 @@ button.roomtag { color: var(--parch); cursor: pointer; }
 .spell.cooling { opacity: .55; filter: grayscale(.5); }
 .spell.cooling::after { content: attr(data-cd); position: absolute; right: 8px; bottom: 6px; font: 700 12px Cinzel, serif; color: #6b4a14; }
 .spell .ty { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- fit every Forge step on screen: Safari's toolbars leave ~664 px on most iPhones and ~548 px on an SE ---- */
+.forge { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.forge .stage { --below: 230px; width: min(100%, calc((100vh - var(--below)) * 3 / 4)); min-width: 96px; }
+@supports (height: 100dvh) { .forge .stage { width: min(100%, calc((100dvh - var(--below)) * 3 / 4)); } }
+.forge[data-step="name"] .stage { --below: 420px; }
+.forge[data-step="result"] .stage { --below: 372px; }
+.forge[data-step="result"][data-preview="none"] .stage { display: none; }
+#stepResult:not(.hidden) { display: grid; grid-template-columns: 3fr 2fr; column-gap: 8px; }
+#stepResult .fcard { grid-column: 1 / -1; }
+#stepResult .gold, #stepResult .ghost { margin-top: 12px; padding: 14px 6px; }
+/* a phone propped sideways: camera on the left at full height, controls on the right */
+@media (orientation: landscape) and (max-height: 520px) {
+  .forge { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; column-gap: 18px; align-items: start;
+    padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  .forge .stage, .forge[data-step] .stage { grid-column: 1; grid-row: 1 / 5; width: auto; height: calc(100vh - 26px); margin: 0; }
+  @supports (height: 100dvh) { .forge .stage, .forge[data-step] .stage { height: calc(100dvh - 26px); } }
+  .forge > :not(.stage) { grid-column: 2; }
+}
+.waiting.gone { font-style: normal; color: #ffd9d9; border-color: rgba(255,122,122,.6); background: rgba(120,20,30,.25); }
+.toast.long { border-radius: 14px; text-align: center; width: max-content; max-width: min(92vw, 440px); font: 600 16px/1.3 "EB Garamond", Georgia, serif; }

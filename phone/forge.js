@@ -22,7 +22,23 @@ $("recBtn").onclick = record;
 $("redoRec").onclick = () => step("record");
 $("redoAll").onclick = async () => { recorded = null; step("record"); await startCamera(); };
 $("forgeBtn").onclick = forgeIt;
+$("spellName").onkeydown = (e) => { if (e.key === "Enter" && !$("forgeBtn").disabled) { e.preventDefault(); $("spellName").blur(); forgeIt(); } };
 $("keepBtn").onclick = keep;
+
+// The body tracker is ~9 MB (wasm + model) from the CDN. app.js warms it up while the phone waits between
+// fights, so a judge's first Forge tap doesn't sit on "Waking the forge…" for 10-20 s of venue Wi-Fi.
+let loading = null;
+function loadLandmarker() {
+  loading ??= (async () => {
+    const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}`);
+    const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/wasm`);
+    const opts = (delegate) => ({ baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numPoses: 1 });
+    return vision.PoseLandmarker.createFromOptions(files, opts("GPU"))
+      .catch(() => vision.PoseLandmarker.createFromOptions(files, opts("CPU")));
+  })().catch((err) => { loading = null; throw err; });  // let the next try start over
+  return loading;
+}
+window.IF_warmForge = () => loadLandmarker().then((l) => { landmarker ??= l; }).catch((err) => console.warn("forge warm-up failed", err));
 
 async function openForge() {
   window.IF_forging = true;
@@ -36,14 +52,10 @@ async function openForge() {
 async function startCamera() {
   $("recBtn").disabled = true;
   hint("Waking the forge…");
+  const slow = setTimeout(() => hint("Downloading the body tracker (first time only, about 9 MB)…"), 4000);
   try {
-    if (!landmarker) {
-      const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}`);
-      const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/wasm`);
-      const opts = (delegate) => ({ baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numPoses: 1 });
-      landmarker = await vision.PoseLandmarker.createFromOptions(files, opts("GPU"))
-        .catch(() => vision.PoseLandmarker.createFromOptions(files, opts("CPU")));
-    }
+    if (!landmarker) landmarker = await loadLandmarker();
+    clearTimeout(slow);
     if (!stream) {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
       $("cam").srcObject = stream;
@@ -54,6 +66,7 @@ async function startCamera() {
     hint("Prop your phone up and step back until your whole body glows.");
     loop();
   } catch (err) {
+    clearTimeout(slow);
     hint(`The forge can't see you: ${err.message || err}. Allow the camera, then close and reopen the forge.`);
   }
 }
@@ -69,6 +82,8 @@ function closeForge() {
 
 function step(which) {
   for (const s of ["record", "name", "result"]) $(`step${s[0].toUpperCase()}${s.slice(1)}`).classList.toggle("hidden", s !== which);
+  $("forge").dataset.step = which;  // style.css sizes the camera per step so the buttons stay on screen
+  $("forge").scrollTop = 0;
   if (which === "record") { $("cam").style.visibility = "visible"; $("skel").classList.add("mirror"); $("count").textContent = ""; cancelAnimationFrame(previewRaf); if (stream) loop(); }
 }
 
@@ -183,8 +198,9 @@ function showResult(s, started) {
     <div class="ty">${TYPE[c.type] || "Might"} · ${esc(c.kind)} · ${esc(c.effect).replace("_", " ")}</div>
     <div class="stats"><div><b>${c.power}</b>Power</div><div><b>${Math.round((c.stability ?? 0) * 10)}</b>Stability</div><div><b>${Math.round((c.originality ?? 0) * 100)}%</b>Original</div></div>
     <div class="how">${started.fit === "on" ? "Kimodo followed your 4 key poses and made them bigger." : "Made from your spell's name."}</div>`;
-  hint("Your robot performing your move:");
+  hint(s.preview?.length ? "Your robot performing your move:" : "Your new spell:");
   step("result");
+  $("forge").dataset.preview = s.preview?.length ? "yes" : "none";  // no preview (mock engine): hide the empty stage
   cancelAnimationFrame(raf);
   stream?.getTracks().forEach((t) => t.stop()); stream = null;
   $("cam").style.visibility = "hidden";
