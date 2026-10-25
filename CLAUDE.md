@@ -14,6 +14,11 @@ automatons, woken by fairy magic, dueling inside a glowing fairy ring.
 
 Pitch line: "Every move you invent teaches a real robot how to move."
 
+Tracks: Most Entertaining, Best Pitch, and Meta (Bringing People Closer
+Together with AI). For Meta, every shout goes through Muse Voice Transcribe, and
+moves are gifts between players: credit popups and Duo Forge (two friends make
+one move together, credited to both).
+
 ## How it plays
 1. Forge (on your phone, anytime, even in line). Prop the phone up, act out a
    move for 5 s, say its name. Kimodo turns the acting into a polished G1 move.
@@ -84,33 +89,45 @@ URL with the room code. Bring a phone hotspot as backup.
 CLAUDE.md
 contract/            write first, then frozen: api.md, ws.md, sim.ts,
                      motion.example.json, constraints.example.json
-server/              Vaibhav: Kimodo, job queue, quality checks, speech to text,
-                     matching, live wildcards, Forge pipeline, server-side
-                     agents, library, WebSocket rooms
-agent/               Jerry: overnight Library Builder loop
-client/src/sim/      Sudeep: MuJoCo G1 playback, PD tracking, balance assist,
-                     hits, damage, types, energy, KO
-client/ (rest)       Jerry: game screen, rendering, effects, commentator audio
+server/              Vaibhav: Kimodo, job queue, quality checks, speech to text
+                     (Muse Voice Transcribe), matching, live wildcards, Forge
+                     pipeline, server-side agents, library, WebSocket rooms
+agent/               Vaibhav (built by Jerry): overnight Library Builder loop
+client/              Sudeep (built by Jerry): game screen, rendering, effects,
+                     narrator; client/src/sim/ is the real physics sim
 phone/               unassigned: Forge capture, pose landmarks, move deck,
                      hold-to-talk, tap buttons
+docs/                Jerry's handoff, Kimodo fact sheet, review findings
 library/             written only by server/: moves.jsonl, motions/, forge/
 ```
 
 ## Kimodo
-- Use the G1 models: `Kimodo-G1-RP-v1` (or `Kimodo-G1-SEED-v1`). They generate
-  for the Unitree G1 directly and save MuJoCo qpos CSV. No retargeting.
-- Constraints: full-body pose keyframes (joint positions at chosen frames),
-  end-effector targets (hand and foot positions and rotations), 2D root paths
-  and waypoints. CLI: `--constraints <file>`. The README doesn't document the
-  file schema. Save one from Kimodo's web demo and copy its format.
-- `--cfg_type separated` takes two guidance weights, text vs constraints.
-  That's the Forge slider: "Follow my acting" <-> "Go wild".
-- Other flags: `--duration` (seconds), `--diffusion_steps`, `--seed`,
-  `--no-postprocess`.
+Full sourced notes: docs/kimodo-g1.md. The short version:
+- Use `Kimodo-G1-RP-v1` only, and pass `--model` on every call (the default is
+  SOMA). Only G1-RP writes the MuJoCo qpos CSV. No retargeting.
+- CSV: 36 columns (root xyz, root quat w-first, 29 hinges), 30 fps, no header,
+  no fps, no joint names. The joint order matches Menagerie `unitree_g1/g1.xml`
+  exactly; the server adds `fps` and `joint_names`.
+- Never put a `.` in a prompt, decimals included. Each period starts a new
+  segment. Start prompts with "A person".
+- Constraints: `fullbody`, `left-hand`/`right-hand`/`left-foot`/`right-foot`,
+  `root2d`. Every pose entry needs all 34 local joint rotations plus the pelvis
+  position, in Kimodo's frame (Y up). There is no raw hand-target field, so
+  Forge needs IK from landmarks to G1 joint angles. 5 working G1 example files
+  ship in the Kimodo repo.
+- The Forge slider is `--cfg_weight <text> <constraint>` (two floats).
+- Post-processing is always off for G1: expect foot skating, joint angles up to
+  ~8 deg past limits and feet ~5 cm below the floor. Quality checks need
+  tolerances; the sim clamps joint targets.
+- `kimodo_gen` reloads the model every call. The server keeps it loaded with
+  the Python API and batches prompts.
+- Clips under 2 s are untested on G1. Measure early; fallback is to generate
+  2 s and trim.
 - About 17 GB of VRAM fully on GPU. Keep the text encoder on the GPU;
   `TEXT_ENCODER_DEVICE=cpu` fits in under 3 GB but is slower.
-- The text encoder is Meta-Llama-3-8B-Instruct. It's gated on Hugging Face and
-  approval can take hours. Request it first.
+- The text encoder is Meta-Llama-3-8B-Instruct. It's gated on Hugging Face with
+  manual approval; people report long waits. Request it first. If it isn't
+  approved in time, the HF Space `nvidia/Kimodo` (G1-RP) is the fallback.
 - Kimodo knows locomotion, gestures, everyday actions, combat and dance.
   Fantasy words make bad motion. `kimodo_prompt` is always a plain body
   description: "a person steps forward and thrusts both palms out at chest
