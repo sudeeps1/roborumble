@@ -2,7 +2,9 @@
 // MediaPipe Pose Landmarker runs in the browser and gives 33 body points per frame; we send the 3D "world"
 // landmarks (meters, hip-centered) to POST /forge. contract/api.md has the endpoints.
 const MP = "0.10.14";
-const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+// "full" tracks fast arms and depth much better than "lite"; lite stays as the CPU fallback for slow phones.
+const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
+const MODEL_LITE = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 const RECORD_MS = 4000;
 const TYPE = { physical: "Might", fire: "Flame", ice: "Frost", lightning: "Storm", shadow: "Shadow" };
 // MediaPipe skeleton for the camera overlay
@@ -25,14 +27,14 @@ $("forgeBtn").onclick = forgeIt;
 $("spellName").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("forgeBtn").disabled) { e.preventDefault(); $("spellName").blur(); forgeIt(); } });
 $("keepBtn").onclick = keep;
 
-// The body tracker is ~9 MB (wasm + model) from the CDN. app.js warms it up while the phone waits between
+// The body tracker is ~15 MB (wasm + model) from the CDN. app.js warms it up while the phone waits between
 // fights, so a judge's first Forge tap doesn't sit on "Waking the forge…" for 10-20 s of venue Wi-Fi.
 let loading = null;
 function loadLandmarker() {
   loading ??= (async () => {
     const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}`);
     const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/wasm`);
-    const opts = (delegate) => ({ baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numPoses: 1 });
+    const opts = (delegate) => ({ baseOptions: { modelAssetPath: delegate === "GPU" ? MODEL : MODEL_LITE, delegate }, runningMode: "VIDEO", numPoses: 1 });
     return vision.PoseLandmarker.createFromOptions(files, opts("GPU"))
       .catch(() => vision.PoseLandmarker.createFromOptions(files, opts("CPU")));
   })().catch((err) => { loading = null; throw err; });  // let the next try start over
@@ -52,7 +54,7 @@ async function openForge() {
 async function startCamera() {
   $("recBtn").disabled = true;
   hint("Waking the forge…");
-  const slow = setTimeout(() => hint("Downloading the body tracker (first time only, about 9 MB)…"), 4000);
+  const slow = setTimeout(() => hint("Downloading the body tracker (first time only, about 15 MB)…"), 4000);
   try {
     if (!landmarker) landmarker = await loadLandmarker();
     clearTimeout(slow);
@@ -101,7 +103,9 @@ function loop() {
     try { res = landmarker.detectForVideo(video, now); }
     catch (err) { console.warn("pose detect failed", err); switchToCpu(); return; }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const pts = res.landmarks?.[0], world = res.worldLandmarks?.[0];
+    const raw = res.landmarks?.[0], rawWorld = res.worldLandmarks?.[0];
+    if (!raw) smooth.reset();
+    const pts = raw && smooth.points(raw, now, "screen"), world = rawWorld && smooth.points(rawWorld, now, "world");
     const seen = (ids) => pts && ids.every((i) => (pts[i].visibility ?? 1) > 0.5);
     const full = seen([11, 12, 15, 16, 23, 24, 27, 28]), upper = seen([11, 12, 15, 16]);
     document.querySelector(".stage").classList.toggle("ready", !!full);
@@ -110,19 +114,41 @@ function loop() {
       : upper ? "Step back a little. I can't see your legs (recording still works)."
       : pts ? "Step back so your arms and body are in view." : "I can't see you yet. Point the camera at yourself.");
     if (pts) drawPose(ctx, pts, canvas.width, canvas.height, full ? "#9ff5dc" : "#ffb6e6");
-    if (recording && world && upper) recording.frames.push(world.map((p) => [round(p.x), round(p.y), round(p.z)]));
+    if (recording && world) recording.frames.push(world.map((p) => [round(p.x), round(p.y), round(p.z)]));
   };
   tick();
 }
 
 let switching = false;
+
+// One Euro filter (Casiez et al. 2012): removes the tracker's jitter when you hold still but keeps fast
+// strikes sharp. One filter per landmark axis, for the drawn skeleton and the recorded 3D points.
+class OneEuro {
+  constructor(minCutoff = 1.5, beta = 0.7, dCutoff = 1) { this.minCutoff = minCutoff; this.beta = beta; this.dCutoff = dCutoff; this.x = null; this.dx = 0; this.t = 0; }
+  filter(x, t) {
+    if (this.x === null) { this.x = x; this.t = t; return x; }
+    const dt = Math.max(1e-3, (t - this.t) / 1000), alpha = (fc) => 1 / (1 + 1 / (2 * Math.PI * fc * dt));
+    this.t = t;
+    this.dx += alpha(this.dCutoff) * ((x - this.x) / dt - this.dx);
+    this.x += alpha(this.minCutoff + this.beta * Math.abs(this.dx)) * (x - this.x);
+    return this.x;
+  }
+}
+const smooth = {
+  f: {},
+  reset() { this.f = {}; },
+  points(list, t, key) {
+    const fs = (this.f[key] ??= list.map(() => [new OneEuro(), new OneEuro(), new OneEuro()]));
+    return list.map((p, i) => ({ ...p, x: fs[i][0].filter(p.x, t), y: fs[i][1].filter(p.y, t), z: fs[i][2].filter(p.z, t) }));
+  },
+};
 async function switchToCpu() {
   if (switching) return;
   switching = true;
   try {
     const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}`);
     const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP}/wasm`);
-    landmarker = await vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL, delegate: "CPU" }, runningMode: "VIDEO", numPoses: 1 });
+    landmarker = await vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL_LITE, delegate: "CPU" }, runningMode: "VIDEO", numPoses: 1 });
   } catch (err) { hint(`Body tracking failed on this phone: ${err.message || err}`); }
   switching = false;
 }
