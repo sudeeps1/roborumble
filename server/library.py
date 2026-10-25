@@ -64,7 +64,7 @@ class Library:
             self._next_move = max(self._next_move, _num(m["id"]) + 1)
             if m.get("kimodo_prompt") and m.get("motion_id"):
                 self.by_prompt.setdefault(norm_prompt(m["kimodo_prompt"]), m["motion_id"])
-        for f in self.motions_dir.glob("mo_*.json"):
+        for f in self.motions_dir.glob("mo_[0-9]*.json"):
             self._next_motion = max(self._next_motion, _num(f.stem) + 1)
             try:
                 q = np.asarray(json.loads(f.read_text())["qpos"], dtype=float)
@@ -84,7 +84,7 @@ class Library:
             tmp = self.motions_dir / f".{motion_id}.tmp"
             tmp.write_text(json.dumps(body, separators=(",", ":")))
             os.replace(tmp, self.motions_dir / f"{motion_id}.json")
-            if not motion_id.startswith("mo_idle"):
+            if not motion_id.startswith(("mo_idle", "clip_")):
                 self.feat_ids.append(motion_id)
                 self.feats.append(features(qpos))
             return motion_id

@@ -1,9 +1,8 @@
 """Speech to text for POST /voice.
 
 STT=muse  Meta Muse Voice Transcribe, file endpoint (POST https://api.meta.ai/v1/asr/transcribe, Bearer
-          auth, multipart, mono 16-bit PCM WAV at 16 or 24 kHz). UNVERIFIED: the multipart field names and
-          the response shape come from third-party write-ups; check dev.meta.ai's speech-to-text docs and
-          adjust MUSE_FILE_FIELD / _muse_text() if the first real call fails.
+          auth, multipart "request" JSON + "audio" WAV, mono 16-bit PCM at 16 or 24 kHz). Tested live:
+          a 0.56 s "uppercut" WAV came back as "uppercut.".
 STT=whisper  faster-whisper on the GPU box.
 STT=none  the phone sends its own transcript (typed or browser speech recognition).
 
@@ -11,6 +10,7 @@ Phones should send WAV (mono, 16 kHz, 16-bit). Anything else is converted with f
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -19,7 +19,7 @@ from typing import Any
 
 from . import config
 
-MUSE_FILE_FIELD = os.environ.get("MUSE_FILE_FIELD", "file")
+MUSE_FILE_FIELD = os.environ.get("MUSE_FILE_FIELD", "audio")
 MUSE_MODEL = "muse-voice-transcribe-1.0"
 _whisper = None
 
@@ -74,8 +74,12 @@ def _muse(wav: bytes) -> str:
     if not config.MUSE_API_KEY:
         raise SttError("MUSE_API_KEY is not set")
     url = config.MUSE_URL or "https://api.meta.ai/v1/asr/transcribe"
+    # Verified against the live API: a JSON "request" part (model + audioEncoding) and an "audio" part.
+    # The response is {"sessionId", "transcript": "uppercut.", "audioDurationMs", "turns"}.
+    request = json.dumps({"model": MUSE_MODEL, "audioEncoding": "WAV"})
     r = httpx.post(url, headers={"Authorization": f"Bearer {config.MUSE_API_KEY}"},
-                   files={MUSE_FILE_FIELD: ("shout.wav", wav, "audio/wav")}, data={"model": MUSE_MODEL}, timeout=10.0)
+                   files={"request": (None, request, "application/json"), MUSE_FILE_FIELD: ("shout.wav", wav, "audio/wav")},
+                   timeout=10.0)
     if r.status_code >= 400:
         raise SttError(f"Muse {r.status_code}: {r.text[:200]}")
     return _muse_text(r.json())

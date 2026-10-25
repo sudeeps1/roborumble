@@ -20,6 +20,12 @@ JSON everywhere except `POST /voice` (multipart). Jobs are plain HTTP; poll ever
 | `POST /voice` | multipart: `room`, `player` (1 or 2), `loudness` (0..1), and `audio` (WAV, mono, 16 kHz, 16-bit) or `transcript` | `{transcript, stt_ms, result: "play", move, score, signature}` or `{transcript, stt_ms, result: "charge", job, guess}`. The same result is pushed to the game screen over the room WebSocket. `{"result": "silence"}` when nothing was heard. 503 if the server can't transcribe (send `transcript` instead). |
 | `POST /match` | `{text}` or `{text, room, player, loudness}` | Without a room: `{hit, score, move, guess}` (debugging). With a room and player: exactly like a shout (typed backup). |
 | `GET /room/{code}` | nothing | `{room, game_connected, seats}` |
+| `GET /clips` | nothing | `[{name, prompt, duration, motion_id, status}]`, character animations that aren't moves |
+| `GET /clip/{name}` | nothing | one clip's Motion (e.g. `idle_hush`, `get_up`, `victory`) |
+| `POST /clip` | `{name, prompt, duration}` | `{job, clip}`; makes or remakes a clip (motion only, never a move) |
+| `POST /forge` | `{nickname, name, landmarks: [T][33][3], fps, wild: 0..1}` | `{job, fit, prompt, keyframes}` |
+| `GET /forge/{job}` | nothing | `running`, `rejected`, or `{status: "done", card, preview: [T][34][2], fit, kept}` |
+| `POST /forge/{job}/keep` | nothing | the saved Move (source `forge`) |
 | `WS /room/{code}?role=game\|phone` | contract/ws.md | contract/ws.md |
 
 ## Motion

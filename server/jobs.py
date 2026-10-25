@@ -82,7 +82,8 @@ class JobQueue:
         job.spec, job.frames = spec, max(6, int(seconds * config.FPS))
         job.constraints, job.cfg_weight, job.on_done = constraints, cfg_weight, on_done
         job.spec["_keep"] = keep
-        reuse = spec.get("motion_id") or (None if constraints else self.library.motion_for_prompt(spec.get("kimodo_prompt", "")))
+        reuse = None if spec.get("_motion_only") else spec.get("motion_id") or (
+            None if constraints else self.library.motion_for_prompt(spec.get("kimodo_prompt", "")))
         if reuse:
             self._reuse(job, reuse)
             return job

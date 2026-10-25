@@ -29,6 +29,30 @@ then 29 hinge angles in the order of `joint_names` (= Menagerie `unitree_g1/g1.x
 origin, not on it; the root quaternion sign can flip between frames; hinges can be ~8 deg past the joint
 limits. See `docs/kimodo-g1.md` section 1.
 
+## Natural character animations (clips)
+
+Non-attack animations made by Kimodo on the GPU: idles (one per character, with a personality), steps,
+dodges, jump, block, hit reactions, stagger, fall, get up, charge-up, taunt, entrance, victory, defeat.
+They are motions only (same format as above), never moves, so nobody can cast them.
+
+```
+curl -s $S/clips                      # [{name, prompt, duration, motion_id, status}]
+curl -s $S/clip/idle_hush > idle_hush.json
+curl -s $S/clip/get_up > get_up.json
+```
+Ready now: idle_fighting, idle_breathe, idle_bramble, idle_marigold, idle_flicker, idle_rime, idle_hush,
+step_forward, step_back, dodge_left, dodge_right, jump, block, hit_head, hit_body, stagger, fall_back,
+get_up, charge_up, taunt, entrance, victory, defeat (list in `server/clips.json`).
+
+Need another one, or a better version? Ask Kimodo for it (about 1 s, same name overwrites):
+```
+curl -s -X POST $S/clip -H 'Content-Type: application/json' \
+  -d '{"name": "idle_hush", "prompt": "a stealthy person crouches low and sways slowly side to side", "duration": 4}'
+```
+Prompt tips: start with "a person" (styles work: "an old person", "a childlike person", "a stealthy
+person", "a tired person", "a happy person"…), describe body movement only, no periods. Idles don't loop
+seamlessly: crossfade the end into the start in the sim.
+
 ## Generate a new motion (about 1 s)
 
 ```

@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -50,6 +51,9 @@ async def lifespan(_: FastAPI):
     hub.loop = asyncio.get_running_loop()
     if not library.has_motion("mo_idle"):
         jobs.submit({"name": "idle", "kimodo_prompt": IDLE_PROMPT, "duration": 3.0, "_motion_only": "mo_idle"}, LIVE)
+    for c in json.loads((config.ROOT / "server" / "clips.json").read_text()):  # natural character animations
+        if not library.has_motion(f"clip_{c['name']}"):
+            queue_clip(c["name"], c["prompt"], c["duration"])
     yield
 
 
@@ -296,6 +300,49 @@ async def voice_shout(room: str = Form(...), player: int = Form(...), loudness: 
         return JSONResponse({"result": "silence", "transcript": text}, status_code=200)
     out = await shout(room, player, text, max(0.0, min(1.0, loudness)))
     return {"transcript": text, "stt_ms": stt_ms, **out}
+
+
+# ---------- clips: character animations that aren't moves (idles, dodges, reactions, get up…) ----------
+CLIPS_FILE = config.LIBRARY_DIR / "clips.json"
+clips: dict[str, dict[str, Any]] = json.loads(CLIPS_FILE.read_text()) if CLIPS_FILE.exists() else {}
+
+
+def queue_clip(name: str, prompt: str, duration: float) -> Job:
+    def done(j: Job) -> None:
+        clips[name] = {"name": name, "prompt": prompt, "duration": duration, "motion_id": f"clip_{name}",
+                       "status": j.status, "check": j.check, "made_at": int(time.time())}
+        CLIPS_FILE.write_text(json.dumps(clips, indent=1))
+    clips.setdefault(name, {"name": name, "prompt": prompt, "duration": duration, "motion_id": f"clip_{name}"})["status"] = "running"
+    return jobs.submit({"name": name, "kimodo_prompt": prompt, "duration": duration, "_motion_only": f"clip_{name}"},
+                       AGENT, on_done=done)
+
+
+@api.post("/clip")
+async def clip_make(request: Request):
+    """Generate (or regenerate) a named animation clip. Body: {name, prompt, duration}."""
+    body = await request.json()
+    name = str(body.get("name") or "").strip().lower()
+    prompt = " ".join(str(body.get("prompt") or "").replace(".", " ").split())
+    if not re.fullmatch(r"[a-z0-9_]{2,40}", name):
+        raise HTTPException(400, "name: 2-40 characters, a-z 0-9 _")
+    if not prompt.lower().startswith(("a ", "an ")):
+        raise HTTPException(400, "prompt should start with 'a person' (or 'an old person', ...)")
+    try:
+        duration = min(8.0, max(0.8, float(body.get("duration") or 2.0)))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "duration must be a number")
+    job = queue_clip(name, prompt, duration)
+    return {"job": job.id, "clip": f"/clip/{name}"}
+
+
+@api.get("/clips")
+def clip_list():
+    return sorted(clips.values(), key=lambda c: c["name"])
+
+
+@api.get("/clip/{name}")
+def clip_get(name: str):
+    return _motion_file(f"clip_{name}")
 
 
 # ---------- Forge: a move the player acted out ----------
