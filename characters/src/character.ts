@@ -91,8 +91,10 @@ export class CharacterView {
 
   private constructor(template: THREE.Object3D, opts: CharacterOptions) {
     const scene = SkeletonUtils.clone(template);
-    const rig = scene.getObjectByName("ElfRig");
-    if (!rig) throw new Error("elf.glb: no ElfRig node");
+    // the armature node carrying the g1_rig metadata (ElfRig, KnightRig, ...)
+    let rig: THREE.Object3D | undefined;
+    scene.traverse((o) => { if (!rig && o.userData?.g1_rig) rig = o; });
+    if (!rig) throw new Error("character GLB: no node with g1_rig metadata");
     const raw = rig.userData.g1_rig;
     this.meta = (typeof raw === "string" ? JSON.parse(raw) : raw) as RigMeta;
     if (!this.meta?.bones) throw new Error("elf.glb: ElfRig.userData.g1_rig missing");

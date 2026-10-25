@@ -195,6 +195,10 @@ export function upgradeMaterials(root: THREE.Object3D, opts: { hue?: number } = 
       color: 0xffffff,
       vertexColors: f.color,
       map: s.map ?? null,
+      // textured models (e.g. the knight) keep their PBR maps
+      normalMap: s.normalMap ?? null,
+      roughnessMap: s.roughnessMap ?? null,
+      metalnessMap: s.metalnessMap ?? null,
       side: src.side,
       roughness: s.roughness ?? 0.6,
       metalness: s.metalness ?? 0,
