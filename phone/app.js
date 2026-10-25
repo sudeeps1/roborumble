@@ -167,7 +167,7 @@
   }, 1000);
   function onEvent(e) {
     const now = Date.now();
-    if (e.kind === "round_start") { breakFrom = now; breakUntil = now + 1800; }       // the "Round N" intro
+    if (e.kind === "round_start") { breakFrom = breakUntil = 0; }  // the screen holds shouts through the intro and casts them at "Fight!"
     else if (e.kind === "ko") { breakFrom = now + 2600; breakUntil = Infinity; }    // the round ends once the fall plays out
     else if (e.kind === "round" || e.kind === "match_end") { breakFrom = now; breakUntil = Infinity; }
     if (e.kind === "ko" && e.loser === player) { toast("Your automaton fell! Next round…"); buzz(200); }
@@ -175,6 +175,10 @@
     else if (e.kind === "hit" && e.attacker === player) buzz(25);
     else if (e.kind === "match_end") toast(e.winner === player ? "Victory! You are champion of the ring ✦" : "The tale ends… rematch?");
     else if (e.kind === "round_start") toast(`Round ${e.round}! Shout your spells`);
+    else if (e.kind === "fizzle" && e.player === player) {
+      const why = { busy: "Your robot was busy too long. Shout it again!", "not fighting": "Between rounds. Shout it again when the round starts!", replaced: "A newer spell took its place." }[e.why] || "It couldn't play. Shout it again!";
+      show(`<b>${esc(e.move)}</b> didn't cast<span class="say">${why}</span>`);
+    }
   }
   // A library move the game screen can't play right now is dropped there without a word back to the phone,
   // so judge from the latest state (contract: canAct checks status, cooldown and energy).
@@ -187,9 +191,7 @@
     if (stopped) return "Between rounds. Shout it again when the round starts!";
     if (!lastMe) return null;
     const st = lastMe.status, cd = lastMe.cooldowns?.[move.id] || 0;
-    if (st === "stunned" || st === "down" || st === "ko") return "Your robot is too dazed to cast. Shout again once it's up!";
-    if (st === "acting" || st === "charging") return "Your robot was still casting. Wait a beat, then shout again.";
-    if (st === "dodging") return "Your robot was mid-dodge. Shout again!";
+    // status: the screen queues a move behind a cast, a stagger, a dodge or a charge; it says so with a fizzle event if it gives up
     if (cd > 0.15) return `Still cooling down (${cd.toFixed(1)} s).`;
     if ((lastMe.energy ?? 100) < (COST[move.power] || 25)) return "Not enough energy. Let it refill a moment.";
     return null;
