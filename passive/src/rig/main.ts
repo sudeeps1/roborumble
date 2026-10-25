@@ -14,6 +14,7 @@ import { SonicPolicy } from "../core/sonic.ts";
 import { STYLES, Sparrer } from "../core/spar.ts";
 import { World } from "../core/world.ts";
 import elfUrl from "@elf-assets/elf.glb?url";
+import knightUrl from "@elf-assets/knight.glb?url";
 import { loadHumanModel } from "./humanRig.ts";
 import { type Look, View } from "./render.ts";
 
@@ -49,7 +50,11 @@ const sources: MotionSource[] = [];
 if (clips.size) sources.push(clips);
 if (plannerUp) sources.push(new PlannerSource(planner));
 
-const NAMES: [string, string] = ["You", "Opponent"];
+// Who fights: one character per fighter from ../characters (?p1=elf&p2=knight is the default).
+const CHARACTERS: Record<string, string> = { elf: elfUrl, knight: knightUrl };
+const picks = [params.get("p1") ?? "elf", params.get("p2") ?? "knight"].map((c) => (c in CHARACTERS ? c : "elf"));
+const title = (c: string) => c[0].toUpperCase() + c.slice(1);
+const NAMES: [string, string] = picks[0] === picks[1] ? [`${title(picks[0])} 1`, `${title(picks[1])} 2`] : [title(picks[0]), title(picks[1])];
 const arena = new Arena(world, policy, { names: NAMES });
 arena.setMotion(sources.length ? new LayeredSource(...sources) : null);
 arena.reset();
@@ -60,9 +65,9 @@ const view = new View(document.body, world, [0xf0a63c, 0x6c8cff], [
   { skin: 0xd8a07c, shorts: 0xf0a63c, gloves: 0xc1272d, hair: 0x2a1c12 },
   { skin: 0x8a5a3c, shorts: 0x3d5afe, gloves: 0x1f4fd1, hair: 0x101010 },
 ], humanModel);
-say("Loading the elf…");
-const elves = await view.loadElves(elfUrl); // ../characters: the elf skin, rigged to the G1
-const startLook = (params.get("look") as Look) ?? (elves ? "elf" : "human");
+say(`Loading the ${picks[0]} and the ${picks[1]}…`);
+const chars = await view.loadCharacters(picks.map((c) => CHARACTERS[c])); // ../characters, rigged to the G1
+const startLook = (params.get("look") as Look) ?? (chars ? "character" : "human");
 view.setLook(startLook);
 boot.remove();
 
@@ -86,9 +91,9 @@ function describe(e: ArenaEvent): string | null {
   }
 }
 arena.on((e) => {
-  if (e.type === "spawn") view.elfSpawned(e.who);
+  if (e.type === "spawn") view.charSpawned(e.who);
   if (e.type === "hit") {
-    view.elfFlash(e.defender);
+    view.charFlash(e.defender);
     const k = Math.min(1, e.impulse / 40);
     view.flash(e.point, [e.dir[0] * k, e.dir[1] * k, e.dir[2] * k], e.blocked ? 0x4dd2ff : e.attacker === null ? 0xff5a3c : 0xffd24a);
   }
@@ -122,7 +127,7 @@ function group(title: string, ...els: HTMLElement[]) {
 
 const h1 = document.createElement("h1"); h1.textContent = "Between moves: rig";
 panel.append(h1);
-const tButtons = NAMES.map((n, i) => button(`${n} (${i ? "blue" : "orange"})`, () => setTarget(i as Who), i === target ? "on" : ""));
+const tButtons = NAMES.map((n, i) => button(n, () => setTarget(i as Who), i === target ? "on" : ""));
 function setTarget(i: Who) { target = i; tButtons.forEach((b, k) => b.classList.toggle("on", k === i)); }
 group("Target (gets hit, defends)", ...tButtons);
 
@@ -160,8 +165,9 @@ const input = slider.querySelector("input")!, out = slider.querySelector("span")
 input.oninput = () => { strength = Number(input.value); out.textContent = `${strength.toFixed(1)}x`; };
 panel.append(slider);
 
-const looks: Look[] = elves ? ["elf", "human", "robot", "both"] : ["human", "robot", "both"];
-const lookButtons = looks.map((l) => button(l[0].toUpperCase() + l.slice(1), () => setLook(l), l === startLook ? "on" : ""));
+const looks: Look[] = chars ? ["character", "human", "robot", "both"] : ["human", "robot", "both"];
+const lookLabel = (l: Look) => (l === "character" ? `${NAMES[0]} vs ${NAMES[1]}` : l[0].toUpperCase() + l.slice(1));
+const lookButtons = looks.map((l) => button(lookLabel(l), () => setLook(l), l === startLook ? "on" : ""));
 function setLook(l: Look) { view.setLook(l); lookButtons.forEach((b, i) => b.classList.toggle("on", looks[i] === l)); }
 group("Look", ...lookButtons);
 

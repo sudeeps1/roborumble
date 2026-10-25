@@ -12,7 +12,7 @@ import type { RobotHandle, World } from "../core/world.ts";
 import { Human, type HumanLook } from "./human.ts";
 import { RiggedHuman } from "./humanRig.ts";
 
-export type Look = "elf" | "human" | "robot" | "both";
+export type Look = "character" | "human" | "robot" | "both";
 
 interface Flash { mesh: THREE.Mesh; arrow: THREE.ArrowHelper; age: number }
 interface Box { fighter: Fighter; vol?: Volume; limb?: Limb; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }
@@ -30,9 +30,9 @@ export class View {
   private world: World;
   private humans: { group: THREE.Object3D; sync(): void }[] = [];
   private robotMats: THREE.MeshStandardMaterial[] = [];
-  /** Elf skins over the robots (../characters), once loadElves() has run. */
-  private elves: CharacterView[] = [];
-  private elfBodies: Map<string, { pos: ArrayLike<number>; quat: ArrayLike<number> }>[] = [];
+  /** Character skins over the robots (../characters: elf, knight), once loadCharacters() has run. */
+  private chars: CharacterView[] = [];
+  private charBodies: Map<string, { pos: ArrayLike<number>; quat: ArrayLike<number> }>[] = [];
   private studio: THREE.Texture | null = null;
   private look: Look = "human";
   private boxes: Box[] = [];
@@ -128,45 +128,45 @@ export class View {
   }
 
   /**
-   * Loads the elf skin (../characters/public/elf.glb, rigged bone-for-bone to the G1), one per
-   * robot; the second gets the other team's colours. False if it can't be loaded.
+   * Loads one character skin per robot (GLBs from ../characters, rigged bone-for-bone to the G1:
+   * the elf, the knight). The second fighter gets the other team's colours. False if one can't load.
    */
-  async loadElves(url: string): Promise<boolean> {
+  async loadCharacters(urls: string[]): Promise<boolean> {
     try {
-      this.elves = await Promise.all(this.world.robots.map((_, i) => CharacterView.load(url, { hue: i ? -2.45 : 0 })));
+      this.chars = await Promise.all(this.world.robots.map((_, i) => CharacterView.load(urls[i], { hue: i ? -2.45 : 0 })));
     } catch (e) {
-      console.warn("elf skin not loaded:", e);
+      console.warn("character skins not loaded:", e);
       return false;
     }
-    for (const e of this.elves) {
-      for (const w of e.warnings) console.warn("elf:", w);
-      e.root.visible = this.look === "elf";
-      this.scene.add(e.root);
+    for (const c of this.chars) {
+      for (const w of c.warnings) console.warn("character:", w);
+      c.root.visible = this.look === "character";
+      this.scene.add(c.root);
     }
-    this.elfBodies = this.world.robots.map(() => new Map());
+    this.charBodies = this.world.robots.map(() => new Map());
     this.studio = makeStudioEnvironment(this.renderer);
     return true;
   }
 
-  get hasElves() { return this.elves.length > 0; }
+  get hasCharacters() { return this.chars.length > 0; }
 
-  /** The rim-lit flash on fighter i's elf (on a hit). */
-  elfFlash(i: number) { this.elves[i]?.hitFlash(); }
+  /** The rim-lit flash on fighter i's character (on a hit). */
+  charFlash(i: number) { this.chars[i]?.hitFlash(); }
 
   /** Fighter i was teleported (spawn, reset): its hair and flaps start over from the new pose. */
-  elfSpawned(i: number) { this.elves[i]?.resetSprings(); }
+  charSpawned(i: number) { this.chars[i]?.resetSprings(); }
 
-  /** Elves, human boxers, the G1 robots, or the humans over a see-through robot. */
+  /** The characters (elf, knight), human boxers, the G1 robots, or the humans over a see-through robot. */
   setLook(look: Look) {
-    if (look === "elf" && !this.elves.length) look = "human";
+    if (look === "character" && !this.chars.length) look = "human";
     this.look = look;
-    for (const e of this.elves) e.root.visible = look === "elf";
-    // the elf's materials are made for its studio light: filmic tone mapping and a soft environment
-    // (authored Y-up; this scene is Z-up, so it's turned a quarter turn about X)
-    const elf = look === "elf";
-    this.renderer.toneMapping = elf ? THREE.AgXToneMapping : THREE.NoToneMapping;
-    this.renderer.toneMappingExposure = elf ? 1.15 : 1;
-    this.scene.environment = elf ? this.studio : null;
+    for (const c of this.chars) c.root.visible = look === "character";
+    // the characters' materials are made for their studio light: filmic tone mapping and a soft
+    // environment (authored Y-up; this scene is Z-up, so it's turned a quarter turn about X)
+    const chars = look === "character";
+    this.renderer.toneMapping = chars ? THREE.AgXToneMapping : THREE.NoToneMapping;
+    this.renderer.toneMappingExposure = chars ? 1.15 : 1;
+    this.scene.environment = chars ? this.studio : null;
     this.scene.environmentIntensity = 0.5;
     this.scene.environmentRotation.set(Math.PI / 2, 0, 0);
     for (const { obj } of this.geoms) obj.visible = look === "robot" || look === "both";
@@ -247,19 +247,19 @@ export class View {
     this.flashes.push({ mesh, arrow, age: 0 });
   }
 
-  /** Drives each elf from its robot's MuJoCo body poses. */
-  private syncElves(dt: number) {
-    if (!this.elves.length || this.look !== "elf") return;
+  /** Drives each character from its robot's MuJoCo body poses. */
+  private syncCharacters(dt: number) {
+    if (!this.chars.length || this.look !== "character") return;
     const d = this.world.data, xp = d.xpos, xq = d.xquat;
     this.world.robots.forEach((r, i) => {
-      const m = this.elfBodies[i];
+      const m = this.charBodies[i];
       for (const [name, b] of r.bodies) m.set(name, { pos: xp.subarray(3 * b, 3 * b + 3), quat: xq.subarray(4 * b, 4 * b + 4) });
-      this.elves[i].update(m, dt);
+      this.chars[i].update(m, dt);
     });
   }
 
   render(dt: number, focus?: ArrayLike<number>) {
-    this.syncElves(dt);
+    this.syncCharacters(dt);
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
       f.age += dt;
