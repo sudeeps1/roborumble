@@ -16,6 +16,8 @@ if (!planner) { console.log("no planner model: run npm run setup:planner first")
 arena.setMotion(new PlannerSource(planner));
 arena.reset();
 const [p1, p2] = arena.fighters;
+// GUARD_TUCK=1,0.6 sets each fighter's guard tuck strength (the rig sets them from the characters)
+(process.env.GUARD_TUCK ?? "").split(",").forEach((v, i) => { if (v && i < 2) arena.fighters[i].guardTuck = Number(v); });
 
 let events: ArenaEvent[] = [];
 arena.on((e) => {
@@ -66,7 +68,7 @@ for (const mode of ["contact", "rules"] as const) {
     await fresh();
     p1.throwPunch("punch.rightHook");
     await run(4, () => p1.punchPhase() === "throw");
-    expect(p2.defend(d, 0.9), `P2 ${d}`); // as the punch starts, held long enough to cover it
+    expect(p2.defend(d, 1.5), `P2 ${d}`); // as the punch starts, held until it's over
     await run(4, () => p1.stance !== "move");
     const clean = hitsOnP2().filter((h) => !h.blocked);
     if (d === "block") expect(clean.length === 0, `${mode}: nothing gets through the block`);
@@ -125,6 +127,7 @@ expect(up, "P2 gets back up");
 const r = arena.hitInstant(1, ATTACKS[0], 1);
 expect(!r.result.landed, "P2 can't be hit right after getting up (grace)");
 await run(TUNE.grace + 0.1);
+await run(3, () => p2.hittable()); // (a wobbly get-up can stumble again first)
 const r2 = arena.hitInstant(1, ATTACKS[0], 0.5);
 expect(r2.result.landed, "after the grace it can be hit again");
 

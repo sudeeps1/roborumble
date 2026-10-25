@@ -95,6 +95,13 @@ knight for the second. Both are skinned meshes rigged bone-for-bone to the G1, s
 simulated bodies exactly (MuJoCo body poses in, no retargeting). A hit flashes the character that
 took it, and the elf's hair and belt flaps are spring-simulated. `?p1=knight&p2=elf` (any of `elf`,
 `knight` for either) picks who fights; the fighters are named after them in the log.
+
+Both ride the same robot skeleton, but the knight's armour is much bulkier. So each character sets
+its fighter's guard tuck (`GUARD_TUCK` in `src/rig/main.ts`, `Fighter.guardTuck`): how far the
+elbows tuck in. The elf tucks fully (1) and the knight 0.35, which leaves the elbows touching the
+ribs about equally (10% and 9% of the elbow mesh, averaged over footwork). At full tuck, a third of
+the knight's elbow armour pressed into his breastplate. The gloves stay at chin height for both.
+`view.armClearance(i)` measures this, with `__rig` as the console handle.
 `vite.config.ts` reaches `../characters/src` and the GLBs in `../characters/public` through the
 `@elf` aliases, with one shared three.js. If a character can't load, the rig falls back to the
 human look. `?look=human`, `?look=robot` or `?look=both` pick another look.
@@ -216,8 +223,9 @@ Impact strength:
   its strike. Anything heavier interrupts it, and the interrupted move eases into a guard at once
   instead of playing on.
 - **Blocks:**
-  - A block stops hits that reach the forearms, or that come from the front (within ±75°) and
-    aren't low.
+  - A block stops hits that reach the forearms, or that come from the front and aren't low.
+    "From the front" means the attacker is within 110° of where the pelvis points. The boxing
+    stance turns the pelvis 20-50° off the opponent, so a narrower arc let hooks past a raised guard.
   - A blocked hit pushes 0.3x, takes 0.2x balance and does 0.12x damage.
 - **Dodges** are rules in both modes, and the body acts them out, measured from the line to the
   opponent. From a standstill, a slip moves the head 12-22 cm sideways and a duck drops it about
@@ -336,7 +344,8 @@ public/clips/block_a.json  {"fps": 30, "qpos": [[36 values], ...], "strikes": [.
 ### Tuning knobs
 | Knob | What it sets |
 | --- | --- |
-| `TUNE` (`fighter.ts`) | Ranges, fall thresholds, get-up help, grace, timeouts |
+| `TUNE` (`fighter.ts`) | Ranges, fall thresholds, get-up help, grace, timeouts, the guard tuck, the block arc |
+| `Fighter.guardTuck` | How far this fighter tucks its elbows (per character: elf 1, knight 0.35) |
 | `LIMITS` (`fighter.ts`) | Stance time limits |
 | `ZONE_IMPULSE`, `ZONE_POISE`, `MIN_HIT_SPEED` (`combat.ts`) | Hit strength |
 | `DAMAGE`, `REFEREE` (`arena.ts`) | HP damage and the referee |

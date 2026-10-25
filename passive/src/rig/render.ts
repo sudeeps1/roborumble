@@ -164,6 +164,85 @@ export class View {
 
   get hasCharacters() { return this.chars.length > 0; }
 
+  /**
+   * Debug: how close character i's elbows (mesh within 7 cm of the elbow joint) come to its ribs
+   * (torso surface at least 10 cm below the shoulders, so shoulder caps and pauldrons that ride on
+   * the arm don't count), from the skinned mesh in the current pose. Per side:
+   * the smallest distance from an arm vertex to the nearest torso triangle (m, capped at 5 cm;
+   * about 0 = touching or crossing into it), and how many arm vertices are within 1 cm of it.
+   */
+  armClearance(i: number): Record<"left" | "right", { min: number; close: number; of: number }> | null {
+    const c = this.chars[i], robot = this.world.robots[i];
+    if (!c || !robot) return null;
+    const TORSO = /^(torso_link|waist_(yaw|roll)_link)$/;
+    const B = (n: string) => this.world.bodyPos(robot.bodies.get(n)!);
+    const shoulder = { left: B("left_shoulder_pitch_link"), right: B("right_shoulder_pitch_link") };
+    const elbow = { left: B("left_elbow_link"), right: B("right_elbow_link") };
+    const ribsTop = Math.min(shoulder.left[2], shoulder.right[2]) - 0.1; // below the armpits: the ribs, not the shoulder caps
+    const arm: Record<"left" | "right", THREE.Vector3[]> = { left: [], right: [] };
+    const tris: THREE.Triangle[] = [];
+    c.root.updateMatrixWorld(true);
+    c.root.traverse((o) => {
+      const m = o as THREE.SkinnedMesh;
+      if (!m.isSkinnedMesh) return;
+      const g = m.geometry, si = g.getAttribute("skinIndex"), sw = g.getAttribute("skinWeight");
+      if (!si || !sw) return;
+      m.skeleton.update();
+      const bone = (k: number) => { let b = 0, w = -1; for (let j = 0; j < 4; j++) if (sw.getComponent(k, j) > w) { w = sw.getComponent(k, j); b = si.getComponent(k, j); } return m.skeleton.bones[b]?.name ?? ""; };
+      const cache = new Map<number, THREE.Vector3>();
+      const at = (k: number) => { let p = cache.get(k); if (!p) { p = m.getVertexPosition(k, new THREE.Vector3()).applyMatrix4(m.matrixWorld); cache.set(k, p); } return p; };
+      for (let k = 0; k < si.count; k++) {
+        const side = /^(left|right)_(shoulder_(roll|yaw)|elbow)_link$/.exec(bone(k))?.[1] as "left" | "right" | undefined;
+        if (!side) continue;
+        const p = at(k), el = elbow[side];
+        if (Math.hypot(p.x - el[0], p.y - el[1], p.z - el[2]) <= 0.07) arm[side].push(p); // around the elbow
+      }
+      const idx = g.index, nTri = (idx ? idx.count : si.count) / 3;
+      for (let t = 0; t < nTri; t++) {
+        const a = idx ? idx.getX(3 * t) : 3 * t, b = idx ? idx.getX(3 * t + 1) : 3 * t + 1, d = idx ? idx.getX(3 * t + 2) : 3 * t + 2;
+        if (!(TORSO.test(bone(a)) && TORSO.test(bone(b)) && TORSO.test(bone(d)))) continue;
+        const ta = at(a), tb = at(b), td = at(d);
+        if (Math.max(ta.z, tb.z, td.z) < ribsTop) tris.push(new THREE.Triangle(ta, tb, td));
+      }
+    });
+    // spatial hash: each torso triangle goes in every 5 cm cell its bounds touch, so a point only
+    // needs its own cell and the next ones (anything farther than ~5 cm is simply "clear")
+    const cell = 0.05, grid = new Map<string, THREE.Triangle[]>(), key = (x: number, y: number, z: number) => `${x},${y},${z}`;
+    const box = new THREE.Box3();
+    for (const t of tris) {
+      box.makeEmpty().expandByPoint(t.a).expandByPoint(t.b).expandByPoint(t.c);
+      for (let x = Math.floor(box.min.x / cell); x <= Math.floor(box.max.x / cell); x++)
+        for (let y = Math.floor(box.min.y / cell); y <= Math.floor(box.max.y / cell); y++)
+          for (let z = Math.floor(box.min.z / cell); z <= Math.floor(box.max.z / cell); z++) {
+            const k = key(x, y, z);
+            (grid.get(k) ?? grid.set(k, []).get(k)!).push(t);
+          }
+    }
+    const q = new THREE.Vector3();
+    const measure = (pts: THREE.Vector3[]) => {
+      let min = cell, close = 0;
+      for (let pi = 0; pi < pts.length; pi += 2) {
+        const p = pts[pi];
+        let best = Infinity, signed = cell;
+        const cx = Math.floor(p.x / cell), cy = Math.floor(p.y / cell), cz = Math.floor(p.z / cell);
+        const seen = new Set<THREE.Triangle>();
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+          for (const t of grid.get(key(cx + dx, cy + dy, cz + dz)) ?? []) {
+            if (seen.has(t)) continue;
+            seen.add(t);
+            t.closestPointToPoint(p, q);
+            const d = p.distanceTo(q);
+            if (d < best) { best = d; signed = d; } // (unsigned: these meshes' linings and shells make normals unreliable)
+          }
+        }
+        if (signed < min) min = signed;
+        if (signed < 0.01) close++;
+      }
+      return { min, close, of: Math.ceil(pts.length / 2) };
+    };
+    return { left: measure(arm.left), right: measure(arm.right) };
+  }
+
   /** The rim-lit flash on fighter i's character (on a hit). */
   charFlash(i: number) { this.chars[i]?.hitFlash(); }
 

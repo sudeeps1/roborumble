@@ -52,11 +52,16 @@ if (plannerUp) sources.push(new PlannerSource(planner));
 
 // Who fights: one character per fighter from ../characters (?p1=elf&p2=knight is the default).
 const CHARACTERS: Record<string, string> = { elf: elfUrl, knight: knightUrl };
+// How far each one tucks its elbows in its guard (Fighter.guardTuck). Tuned so the elbows touch the
+// ribs about equally: at full tuck a third of the knight's elbow armour pressed into his
+// breastplate (10% for the elf); at 0.35 it's 9%.
+const GUARD_TUCK: Record<string, number> = { elf: 1, knight: 0.35 };
 const picks = [params.get("p1") ?? "elf", params.get("p2") ?? "knight"].map((c) => (c in CHARACTERS ? c : "elf"));
 const title = (c: string) => c[0].toUpperCase() + c.slice(1);
 const NAMES: [string, string] = picks[0] === picks[1] ? [`${title(picks[0])} 1`, `${title(picks[1])} 2`] : [title(picks[0]), title(picks[1])];
 const arena = new Arena(world, policy, { names: NAMES });
 arena.setMotion(sources.length ? new LayeredSource(...sources) : null);
+picks.forEach((c, i) => (arena.fighters[i].guardTuck = GUARD_TUCK[c] ?? 1));
 arena.reset();
 
 say("Loading the human model…");
@@ -261,3 +266,5 @@ function frame(now: number) {
     `apart ${arena.distance().toFixed(2)} m · sim ${arena.time.toFixed(1)} s · ${fps.toFixed(0)} fps · tick ${tickMs.toFixed(1)} ms · SONIC on ${ep}`;
 }
 requestAnimationFrame(frame);
+// debug handle for the console (and for tuning): __rig.arena, __rig.view
+Object.assign(globalThis, { __rig: { arena, view } });

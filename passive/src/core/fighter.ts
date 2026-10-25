@@ -75,13 +75,21 @@ export const TUNE = {
   koSlump: 1.2,       // s a KO'd body folds before it goes limp
   maxClip: 5,         // s, longest clip playMove accepts
   reanchor: 0.25,     // m the motion may drift from the body before it is moved back
+  blockArc: (110 * Math.PI) / 180, // a block covers strikes coming from within this of where the pelvis points
   // Guard tuck: joint offsets (rad, MuJoCo signs) added to the motion's arms while idle, staggered
   // or defending, eased in and out over `ease` s (see updateOverlays). The planner's guard flares
-  // the elbows (0.39 m apart) with the gloves touching (0.09 m). Shoulder roll pulls the elbows in
-  // to the ribs (~0.30 m apart), shoulder yaw turns the forearms out so the gloves part (~0.2 m) at
-  // the cheeks. Uneven left/right because the planner's orthodox stance sits the whole guard to the
-  // right of the face. (Lowering them with shoulder pitch let a hook through the block: don't.)
-  guardTuck: { ease: 0.2, joints: { shRollL: -0.35, shRollR: 0.55, shYawL: 0.5, shYawR: -0.2 } as Partial<Record<keyof typeof J, number>> },
+  // the elbows (0.39 m apart) with the gloves touching (0.09 m) at the nose. Shoulder roll pulls the
+  // elbows in to the ribs (~0.30 m apart), shoulder yaw turns the forearms out so the gloves part
+  // (~0.21 m), and shoulder pitch lowers them to the chin (~5-7 cm below the head's centre). Uneven
+  // left/right because the planner's orthodox stance sits the whole guard to the right of the face.
+  // It eases out while blocking, so a block keeps its own arm raise.
+  // `joints` is scaled by each fighter's guardTuck strength (a bulky character tucks less), `lower`
+  // (the chin height) isn't.
+  guardTuck: {
+    ease: 0.2,
+    joints: { shRollL: -0.35, shRollR: 0.55, shYawL: 0.45, shYawR: -0.15 } as Partial<Record<keyof typeof J, number>>,
+    lower: { shPitchL: 0.25, shPitchR: 0.25 } as Partial<Record<keyof typeof J, number>>,
+  },
 };
 
 // Arms forward and knees soft: what the robot reaches for while it goes down.
@@ -150,6 +158,11 @@ export class Fighter {
   poise = 1;
   intent = "";
   lastEvent = "";
+  /**
+   * How far this fighter tucks its elbows in its guard (TUNE.guardTuck.joints): 1 for a slim build,
+   * less for a bulky one (armour) so its arms clear its body. Set from the character; 0..1.5.
+   */
+  guardTuck = 1;
   /** Counts attacks started, so the AI can tell a new attack from one it already reacted to. */
   attackSerial = 0;
   readonly stats = { applied: 0, staleDrops: 0, failedAsks: 0, noMotion: 0, askTimeouts: 0, failsafes: 0, getups: 0, assisted: 0, badTransitions: 0, errors: 0 };
@@ -417,9 +430,13 @@ export class Fighter {
     const body = this.robot.bodyIds.includes(imp.body) ? imp.body : this.robot.bodies.get("torso_link")!;
     const dn = Math.hypot(imp.dir[0], imp.dir[1], imp.dir[2]) || 1;
     const dir = [imp.dir[0] / dn, imp.dir[1] / dn, imp.dir[2] / dn];
-    const f = this.facing();
-    // blocked: it met the forearms, or the guard is up and it came from the front and not low
-    const fromFront = -(dir[0] * f[0] + dir[1] * f[1]) > Math.cos((75 * Math.PI) / 180) * Math.hypot(dir[0], dir[1]);
+    // blocked: it met the forearms, or the guard is up and it came from the front and not low.
+    // "From the front" is where the strike comes from (the attacker, or against the push for a
+    // hit with no attacker) within TUNE.blockArc of the way the pelvis points. The boxing stance
+    // turns the pelvis 20-50 deg off the opponent, so a narrow arc let hooks through a raised guard.
+    const f = this.facing(), me = this.world.rootPos(this.robot);
+    const from = imp.attacker ? (() => { const a = this.world.rootPos(imp.attacker.robot); return [a[0] - me[0], a[1] - me[1]]; })() : [-dir[0], -dir[1]];
+    const fromFront = from[0] * f[0] + from[1] * f[1] > Math.cos(TUNE.blockArc) * Math.hypot(from[0], from[1]);
     const blocked = this.isBlocking() && (!!imp.guard || (imp.zone !== "legs" && fromFront));
     let impulse = clamp(imp.impulse, 0, TUNE.maxImpulse) * (blocked ? 0.3 : 1);
     const poiseHit = clamp(imp.poise, 0, 2) * (blocked ? 0.2 : 1) * (imp.counter ? 1.5 : 1);
@@ -1098,11 +1115,17 @@ export class Fighter {
       if (e.tilt) quat = qmul(axisAngleQuat(e.tilt.axis[0], e.tilt.axis[1], e.tilt.axis[2], e.tilt.angle * w), quat);
     }
     // Guard tuck (TUNE.guardTuck), added on top of the effects: eases in while boxing in place
-    // (idle, stagger, defend), eases out once a move starts (punches and clips keep their own arms),
-    // off at once on the way down, on the floor, getting up or KO'd.
+    // (idle, stagger, and defenses other than a block: a duck or a dodge keeps it), eases out while
+    // blocking or once a move starts (punches and clips keep their own arms), off at once on the
+    // way down, on the floor, getting up or KO'd.
     const g = TUNE.guardTuck, guarding = this.stance === "idle" || this.stance === "stagger" || this.stance === "defend";
-    this.tuck = guarding || this.stance === "move" ? clamp(this.tuck + (guarding ? dt : -dt) / Math.max(g.ease, dt), 0, 1) : 0;
-    if (this.tuck > 0) for (const [k, v] of Object.entries(g.joints)) oj[J[k as keyof typeof J]] += (v ?? 0) * this.tuck;
+    const on = guarding && !this.isBlocking();
+    this.tuck = guarding || this.stance === "move" ? clamp(this.tuck + (on ? dt : -dt) / Math.max(g.ease, dt), 0, 1) : 0;
+    if (this.tuck > 0) {
+      const strength = Number.isFinite(this.guardTuck) ? clamp(this.guardTuck, 0, 1.5) : 1;
+      for (const [k, v] of Object.entries(g.joints)) oj[J[k as keyof typeof J]] += (v ?? 0) * this.tuck * strength;
+      for (const [k, v] of Object.entries(g.lower)) oj[J[k as keyof typeof J]] += (v ?? 0) * this.tuck;
+    }
     this.ctl.overlayQuat = quat;
   }
 
