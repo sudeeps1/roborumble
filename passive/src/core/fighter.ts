@@ -23,7 +23,7 @@ import { DEFAULT_ANGLES, NJ } from "./g1.ts";
 import { axisAngleQuat, clamp, dist2, finite3, qmul, tiltOf, yawOf } from "./math.ts";
 import type { MotionAsk, MotionClip, MotionName, MotionSource, StrikeWindow } from "./motion.ts";
 import { contextFromReference } from "./planner.ts";
-import { type Frame, REF_HZ, Reference, type Snap, type Squat, copyFrame, deepenSquat, mixFrames, poseFrame, resample, sanitizeFrames, snapArms, waistToHips } from "./reference.ts";
+import { ARM_JOINTS, type Frame, REF_HZ, Reference, type Snap, type Squat, armFastWeights, copyFrame, deepenSquat, mixFrames, poseFrame, resample, sanitizeFrames, snapArms, waistToHips } from "./reference.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SonicController, type SonicPolicy } from "./sonic.ts";
 import { type MoveSpec, SPELL, checkSpec } from "./spells.ts";
@@ -70,7 +70,15 @@ export const TUNE = {
   // s 1 turns it off). Spiral Sphere's thrust 2.4 -> 3.1 m/s (clip 3.4), Fireball and Earth Wall a
   // little faster, Thunder Call unchanged (its elbow is held back by SONIC's short target lead, not
   // the reference); average hand error the same, nobody falls.
-  spellSnap: { s: 1.5, thr: 0.35, sigma: 2, gain: 1.5, wrist: 0.3 } as Snap,
+  spellSnap: { s: 1.25, thr: 0.35, sigma: 2, gain: 1.5, wrist: 0.3 } as Snap,
+  // the strike feed-forward (feedForward): during an attack spell's fast arm strokes the arms' PD law
+  // also gets g x the reference joint velocity, and kdb x more damping to follow it and brake with it
+  // (SONIC's targets lead the arm too little for the PD gains to reach a strike's speed). With snap
+  // 1.25 instead of 1.5: Thunder Call's stroke 1.9 -> 3.2 m/s along the clip's motion (clip 4.6),
+  // Fireball 2.4 -> 3.3 (4.3), Spiral Sphere the same speed with 3 cm less overshoot; same hand
+  // error, no rebound, nobody falls. Off for defend spells (Earth Wall overshot for little speed).
+  // wrist: share for the wrists; ramp: frames to fade in at the clip's start and out at its end.
+  spellFF: { g: 0.7, kdb: 1, wrist: 0.3, ramp: 4 },
   // spells' deep crouches bent further so SONIC reaches their depth (deepenSquat): Earth Wall's pelvis
   // bottoms within ~1 cm of the clip's 0.54 m instead of 7-8 cm above; moves above 0.69 m untouched
   spellSquat: { gain: 2.66, below: 0.69 } as Squat,
@@ -205,6 +213,8 @@ export class Fighter {
   private inflight: Inflight | null = null;
   /** s the motion source took to answer recent step-in asks (stepIn asks the next step that early) */
   private stepLag = 0.5;
+  /** The playing spell's clip for the strike feed-forward: where it starts on the frame clock, its length, its arms' fast weights. */
+  private armFF: { start: number; n: number; w: number[][] | null; attack: boolean } | null = null;
   private nextFootworkAt = 0;
   private sawAttack = false;
   private circleDir = 1;
@@ -407,6 +417,7 @@ export class Fighter {
     const t0 = this.timeOfFrame(start);
     const o = this.world.rootPos(this.opponent.robot);
     this.combat.cast(this, this.opponent, sp.spec, t0 + sp.hitT, [o[0], o[1]]);
+    this.armFF = { start, n: sp.frames.length, w: armFastWeights(sp.frames, TUNE.spellSnap), attack: sp.spec.kind !== "defend" };
     mv.endT = t0 + (sp.frames.length - 1) / REF_HZ + 0.1;
     this.intent = `${sp.spec.kind === "defend" ? "raising" : "casting"} ${sp.spec.name}`;
     const s = sp.spec;
@@ -672,11 +683,32 @@ export class Fighter {
     });
     try {
       await this.ctl.tick(this.ref);
+      this.feedForward();
     } finally {
       this.ref.advance();
       this.raw.advance();
       this.nowT += dt;
     }
+  }
+
+  /**
+   * The strike feed-forward for this tick (TUNE.spellFF): while an attack spell's clip plays, each
+   * arm joint gets its reference velocity (g, faded by how fast the clip swings that arm, and in and
+   * out over `ramp` frames) and that much extra damping; zero otherwise, which is SONIC's own PD law.
+   */
+  private feedForward() {
+    const c = this.ctl, ff = this.armFF;
+    c.ffVel.fill(0); c.ffDamp.fill(0);
+    if (!ff || !ff.w || !ff.attack || this.stance !== "move" || this.move?.spell?.phase !== "cast" || !c.active || c.hold || c.stiffness !== 1) return;
+    const i = this.ref.now - ff.start;
+    if (i < 0 || i > ff.n - 1) return;
+    const k = TUNE.spellFF, ramp = Math.min(1, (i + 1) / k.ramp, (ff.n - 1 - i) / k.ramp);
+    ARM_JOINTS.forEach((js, side) => js.forEach((j, m) => {
+      const e = ff.w![side][i] * ramp * (m < 4 ? 1 : k.wrist);
+      if (!(e > 0)) return;
+      c.ffVel[j] = k.g * e * this.ref.jointVel(this.ref.now, j);
+      c.ffDamp[j] = k.kdb * e;
+    }));
   }
 
   /** Per 5 ms physics step: hit pushes, the get-up lift, then PD. */
