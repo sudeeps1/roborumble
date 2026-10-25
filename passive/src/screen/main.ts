@@ -49,13 +49,15 @@ const ep = params.get("ep") ?? "wasm";
 const policy = await SonicPolicy.load(ort as never, "/sonic/model_encoder.onnx", "/sonic/model_decoder.onnx", { executionProviders: [ep] });
 const planner = new HttpPlanner();
 const plannerUp = await planner.alive();
-const clips = await ClipSource.fetch("/clips");
+// recorded motion first: /clips, then the physics-checked Kimodo everyday library (tools/kimodo); the planner fills the rest
+const clips = await ClipSource.fetch(["/clips", "/clips-everyday"]);
 const sources: MotionSource[] = [];
 if (clips.size) sources.push(clips);
 if (plannerUp) sources.push(new PlannerSource(planner));
 const arena = new Arena(world, policy, { names: [ROSTER[0].name, ROSTER[1].name] });
 arena.setMotion(sources.length ? new LayeredSource(...sources) : null);
 ROSTER.forEach((r, i) => (arena.fighters[i].guardTuck = r.tuck));
+ROSTER.forEach((r, i) => (arena.fighters[i].character = r.id)); // each picks its own clips (guard.elf, step.forward.knight...)
 
 // the spellbook: Kimodo spells with their specs (public/clips-kimodo/spells.json); the phones add more
 say("Loading the spellbook…");
