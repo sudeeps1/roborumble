@@ -228,3 +228,6 @@ h2 { font-size: 17px; }
 .forge[data-step="result"][data-preview="none"] .stage { display: none; }
 #stepResult:not(.hidden) { display: grid; grid-template-columns: 3fr 2fr; column-gap: 8px; }
 #stepResult .fcard { grid-column: 1 / -1; }
+
+/* hold to talk: no text selection or callout while the orb is held */
+.mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }

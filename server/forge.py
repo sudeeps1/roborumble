@@ -163,6 +163,11 @@ def describe(lm: np.ndarray, R: np.ndarray) -> tuple[str, str]:
     return f"a person {phrase} with big powerful movements", hit
 
 
+# describe()'s phrases -> the kind of move they look like
+MOTION_KIND = [("shockwave", r"stomps down|swings them down hard|spins"), ("strike", r"slams it down"),
+               ("projectile", r"thrusts both palms")]
+
+
 def plan(landmarks: list, fps: float, name: str, wild: float) -> dict[str, Any]:
     """Everything the job needs: spec, constraints (or None), cfg weights."""
     lm = np.asarray(landmarks, dtype=float)
@@ -177,6 +182,10 @@ def plan(landmarks: list, fps: float, name: str, wild: float) -> dict[str, Any]:
     prompt, hit = describe(seg, R)
 
     spec = wildcard.keyword_spec(name)
+    if not any(re.search(rx, name.lower()) for _, rx in wildcard.KIND_WORDS):
+        # the name says nothing about the kind of move: go by what the player acted
+        spec["kind"] = next((k for k, rx in MOTION_KIND if re.search(rx, prompt)), "melee")
+        spec["effect"] = "shockwave" if spec["kind"] == "shockwave" else wildcard.EFFECT[spec["type"]]
     spec.update(name=_title(name), kimodo_prompt=prompt, hit_joint=spec["hit_joint"] if spec["kind"] == "defend" else hit,
                 duration=round(seconds, 2), power=3 if wild > 0.66 else 2)
     if spec["name"].lower() not in spec["aliases"]:
