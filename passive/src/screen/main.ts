@@ -239,6 +239,7 @@ function onScreen(p: ArrayLike<number>) {
 }
 
 arena.on((e: ArenaEvent) => {
+  if (e.type === "move" || e.type === "defend" || e.type === "hit" || e.type === "release") director.wake(); // the idle orbit stops
   if (link) publish(e);
   if (gameFx) { gameFx.event(e); if (e.type === "reset") fx.onEvent(e); } else fx.onEvent(e);
   switch (e.type) {
