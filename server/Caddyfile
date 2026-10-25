@@ -1,0 +1,5 @@
+# sudo caddy run --config server/Caddyfile   (set DOMAIN, e.g. DOMAIN=infinitefighter.tech)
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy localhost:8000
+}

@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+numpy>=1.24
+httpx>=0.27
+pydantic>=2
+anthropic>=2.3,<3
+# Optional, big: real shout matching. Without it the server falls back to fuzzy matching.
+# sentence-transformers>=3
+# On the GPU box only: PyTorch with CUDA, then Kimodo (see README) and, for STT=whisper, faster-whisper.
