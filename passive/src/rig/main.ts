@@ -45,7 +45,8 @@ async function loadSpells(base: string): Promise<{ spells: Spell[]; listed: numb
   }));
   return { spells: got.filter((x): x is Spell => x !== null), listed: lib.length };
 }
-const spellsLoading = loadSpells("/clips-kimodo");
+// Vaibhav's whole spell library when it has been synced (npm run sync:spells), else the four showcase spells
+const spellsLoading = loadSpells("/clips-library").then((r) => (r.spells.length ? r : loadSpells("/clips-kimodo")));
 
 // ORT finds its wasm next to its own module (onnxruntime-web is excluded from pre-bundling).
 ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 4);

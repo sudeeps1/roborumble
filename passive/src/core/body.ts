@@ -4,8 +4,8 @@ import { dist3, pointSegment } from "./math.ts";
 import type { RobotHandle, World } from "./world.ts";
 
 export type Zone = "head" | "torso" | "legs";
-export type Limb = "l_hand" | "r_hand" | "l_foot" | "r_foot" | "l_elbow" | "r_elbow" | "l_knee" | "r_knee" | "head";
-export const LIMBS: Limb[] = ["l_hand", "r_hand", "l_foot", "r_foot", "l_elbow", "r_elbow", "l_knee", "r_knee", "head"];
+export type Limb = "l_hand" | "r_hand" | "l_foot" | "r_foot" | "l_elbow" | "r_elbow" | "l_knee" | "r_knee" | "head" | "chest";
+export const LIMBS: Limb[] = ["l_hand", "r_hand", "l_foot", "r_foot", "l_elbow", "r_elbow", "l_knee", "r_knee", "head", "chest"];
 
 /** A capsule (a sphere when a == b) fixed to a body, in that body's frame. */
 export interface Volume { zone: Zone; name: string; body: number; a: number[]; b: number[]; r: number }
@@ -73,6 +73,8 @@ export class BodyMap {
       this.guard.push({ zone: "torso", name: `${side} forearm`, body: elbow, a: [0, 0, 0], b: world.toLocal(elbow, world.pointOn(wrist, fist)), r: 0.05 });
     }
     this.strikers.head = { limb: "head", body: torso, local: headC, r: headR * 0.9 };
+    // the front of the chest (a body slam, a breath or a beam from the chest: hit_joint "chest" in Vaibhav's library)
+    this.strikers.chest = { limb: "chest", body: torso, local: [tx + tr * 0.8, 0, (tz0 + Math.max(tz0, tz1)) / 2], r: 0.1 };
     for (const l of LIMBS) { this.pos[l] = [0, 0, 0]; this.prev[l] = [0, 0, 0]; this.vel[l] = [0, 0, 0]; this.speeds[l] = []; }
     this.update(0);
   }
