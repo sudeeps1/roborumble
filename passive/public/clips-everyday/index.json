@@ -1,0 +1,56 @@
+{
+ "block": [
+  "block_0.json",
+  "block_1.json"
+ ],
+ "duck": [
+  "duck_0.json",
+  "duck_1.json"
+ ],
+ "getup.knees": [
+  "getup_knees_0.json",
+  "getup_knees_1.json",
+  "getup_knees_2.json",
+  "getup_knees_3.json"
+ ],
+ "guard": [
+  "guard_0.json",
+  "guard_1.json"
+ ],
+ "guard.elf": [
+  "guard_elf_0.json",
+  "guard_elf_1.json"
+ ],
+ "guard.knight": [
+  "guard_knight_0.json",
+  "guard_knight_1.json"
+ ],
+ "punch.leftHook": [
+  "punch_leftHook_0.json",
+  "punch_leftHook_1.json"
+ ],
+ "punch.leftJab": [
+  "punch_leftJab_0.json",
+  "punch_leftJab_1.json"
+ ],
+ "punch.rightHook": [
+  "punch_rightHook_0.json"
+ ],
+ "punch.rightJab": [
+  "punch_rightJab_0.json",
+  "punch_rightJab_1.json"
+ ],
+ "jump": [
+  "jump_0.json"
+ ],
+ "step.forward": [
+  "step_forward_0.json"
+ ],
+ "step.left": [
+  "step_left_0.json",
+  "step_left_1.json"
+ ],
+ "step.right": [
+  "step_right_0.json"
+ ]
+}

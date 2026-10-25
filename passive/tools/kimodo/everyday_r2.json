@@ -1,0 +1,534 @@
+{
+ "anchors": "anchors.json",
+ "defaults": {
+  "samples": 8,
+  "steps": 100,
+  "cfg": [
+   2.0,
+   2.0
+  ]
+ },
+ "jobs": [
+  {
+   "id": "dodge_left.r2a",
+   "motion": "dodge.left",
+   "prompt": "A person quickly steps and leans far to their left side to avoid a punch",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 20100,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      0.35,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "active": 0.7
+   },
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.3,
+     0,
+     0.25
+    ],
+    [
+     "end",
+     0,
+     0.35
+    ]
+   ]
+  },
+  {
+   "id": "dodge_left.r2b",
+   "motion": "dodge.left",
+   "prompt": "A person in a boxing stance slips a punch by dropping their head quickly to their left",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 20200,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    }
+   ],
+   "meta": {
+    "active": 0.7
+   },
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.3,
+     0,
+     0.2
+    ],
+    [
+     "end",
+     0,
+     0.25
+    ]
+   ]
+  },
+  {
+   "id": "dodge_left.r2c",
+   "motion": "dodge.left",
+   "prompt": "A person bends sideways at the waist and dips their head low to the left then recovers",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 20300,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      0.15,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "active": 0.75
+   },
+   "cfg": [
+    2.0,
+    1.0
+   ]
+  },
+  {
+   "id": "dodge_right.r2a",
+   "motion": "dodge.right",
+   "prompt": "A person quickly steps and leans far to their right side to avoid a punch",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 20400,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      -0.35,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "active": 0.7
+   },
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.3,
+     0,
+     -0.25
+    ],
+    [
+     "end",
+     0,
+     -0.35
+    ]
+   ]
+  },
+  {
+   "id": "dodge_right.r2b",
+   "motion": "dodge.right",
+   "prompt": "A person in a boxing stance slips a punch by dropping their head quickly to their right",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 20500,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    }
+   ],
+   "meta": {
+    "active": 0.7
+   },
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.3,
+     0,
+     -0.2
+    ],
+    [
+     "end",
+     0,
+     -0.25
+    ]
+   ]
+  },
+  {
+   "id": "dodge_right.r2c",
+   "motion": "dodge.right",
+   "prompt": "A person bends sideways at the waist and dips their head low to the right then recovers",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 20600,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      -0.15,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "active": 0.75
+   },
+   "cfg": [
+    2.0,
+    1.0
+   ]
+  },
+  {
+   "id": "dodge_back.r2a",
+   "motion": "dodge.back",
+   "prompt": "A person quickly hops backward away from a punch with hands up",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 20700,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      -0.35,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "active": 0.7
+   },
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.3,
+     -0.25,
+     0
+    ],
+    [
+     "end",
+     -0.35,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "dodge_back.r2b",
+   "motion": "dodge.back",
+   "prompt": "A person in a boxing stance leans back and steps away quickly from a punch",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 20800,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    }
+   ],
+   "meta": {
+    "active": 0.7
+   },
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.3,
+     -0.2,
+     0
+    ],
+    [
+     "end",
+     -0.3,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "step_back.r2a",
+   "motion": "step.back",
+   "prompt": "A person in a boxing stance takes a quick step backward with both feet",
+   "duration": 1.0,
+   "samples": 8,
+   "seed": 20900,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      -0.35,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {},
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.5,
+     -0.2,
+     0
+    ],
+    [
+     "end",
+     -0.35,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "step_back.r2b",
+   "motion": "step.back",
+   "prompt": "A person shuffles backward with small quick steps while keeping both hands up",
+   "duration": 1.2,
+   "samples": 8,
+   "seed": 21000,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      -0.4,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {},
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     -0.4,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "step_back.r2c",
+   "motion": "step.back",
+   "prompt": "A person steps back with the rear foot then slides the front foot back into stance",
+   "duration": 1.0,
+   "samples": 8,
+   "seed": 21100,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    }
+   ],
+   "meta": {},
+   "root": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     "end",
+     -0.3,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "punch_rightHook.r2a",
+   "motion": "punch.rightHook",
+   "prompt": "A person swings a wide right hook across their body at head height then returns to a fighting stance",
+   "duration": 1.0,
+   "samples": 8,
+   "seed": 21200,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "hit_limb": "r_hand",
+    "key": 0.45
+   }
+  },
+  {
+   "id": "punch_rightHook.r2b",
+   "motion": "punch.rightHook",
+   "prompt": "A person throws a powerful right hook punch turning the hips and shoulders",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 21300,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    }
+   ],
+   "meta": {
+    "hit_limb": "r_hand",
+    "key": 0.45
+   }
+  },
+  {
+   "id": "punch_leftJab.r2a",
+   "motion": "punch.leftJab",
+   "prompt": "A person snaps a very fast left jab straight forward and quickly pulls it back",
+   "duration": 0.7,
+   "samples": 8,
+   "seed": 21400,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "hit_limb": "l_hand",
+    "key": 0.3
+   }
+  },
+  {
+   "id": "punch_rightJab.r2a",
+   "motion": "punch.rightJab",
+   "prompt": "A person snaps a very fast right straight punch forward and quickly pulls it back",
+   "duration": 0.7,
+   "samples": 8,
+   "seed": 21500,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "hit_limb": "r_hand",
+    "key": 0.3
+   }
+  },
+  {
+   "id": "punch_leftHook.r2a",
+   "motion": "punch.leftHook",
+   "prompt": "A person whips a fast left hook around at head height then returns to guard",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 21600,
+   "keyframes": [
+    {
+     "t": 0,
+     "anchor": "guard"
+    },
+    {
+     "t": "end",
+     "anchor": "guard",
+     "offset": [
+      0,
+      0,
+      0
+     ]
+    }
+   ],
+   "meta": {
+    "hit_limb": "l_hand",
+    "key": 0.38
+   }
+  }
+ ]
+}

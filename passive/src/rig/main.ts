@@ -67,7 +67,8 @@ const ep = params.get("ep") ?? "wasm"; // ?ep=webgpu to try the GPU
 const policy = await SonicPolicy.load(ort as never, "/sonic/model_encoder.onnx", "/sonic/model_decoder.onnx", { executionProviders: [ep] });
 const planner = new HttpPlanner();
 const plannerUp = await planner.alive();
-const clips = await ClipSource.fetch("/clips"); // Kimodo clips, when there are any (see README)
+// Kimodo clips, when there are any (see README): /clips first, then the published everyday library
+const clips = await ClipSource.fetch(["/clips", "/clips-everyday"]);
 const sources: MotionSource[] = [];
 if (clips.size) sources.push(clips);
 if (plannerUp) sources.push(new PlannerSource(planner));
@@ -84,6 +85,7 @@ const NAMES: [string, string] = picks[0] === picks[1] ? [`${title(picks[0])} 1`,
 const arena = new Arena(world, policy, { names: NAMES });
 arena.setMotion(sources.length ? new LayeredSource(...sources) : null);
 picks.forEach((c, i) => (arena.fighters[i].guardTuck = GUARD_TUCK[c] ?? 1));
+picks.forEach((c, i) => (arena.fighters[i].character = c)); // a clip library may have its own guard (guard.elf)
 arena.reset();
 
 say("Loading the human model…");

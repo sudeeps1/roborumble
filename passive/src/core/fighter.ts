@@ -133,7 +133,8 @@ interface Punch extends Approach { name: PunchName; power: number; phase: "appro
 interface Spell extends Approach { spec: NonNullable<ReturnType<typeof checkSpec>>; frames: Frame[]; hitT: number; phase: "approach" | "cast"; gap: number }
 interface Move { name: string; endT: number; punch: Punch | null; spell?: Spell | null }
 
-const freshRise = () => ({ stage: 0, stageT: 0, tries: 0, fails: 0, failed: false, assist: 0, cap: 0, startT: 0 });
+// full: s of the current stage-0 answer when it goes all the way to standing (one get-up clip), else 0
+const freshRise = () => ({ stage: 0, stageT: 0, tries: 0, fails: 0, failed: false, assist: 0, cap: 0, startT: 0, full: 0 });
 
 export interface FighterContext {
   index: Who;
@@ -162,7 +163,16 @@ export class Fighter {
   stance: Stance = "idle";
   stanceT = 0;
   opponent!: Fighter;
-  motion: MotionSource | null = null;
+  /**
+   * Where motion comes from (arena.setMotion). A source that keeps per-fighter state (forAsker: a
+   * clip library's guard variant and loop phase) is asked through its view for this fighter, so its
+   * asks carry who and character; any other source is used as it is.
+   */
+  get motion(): MotionSource | null { return this.motionView; }
+  set motion(src: MotionSource | null) { this.motionView = src?.forAsker ? src.forAsker(this) : src; }
+  private motionView: MotionSource | null = null;
+  /** The character this fighter is (the rig sets it: "elf", "knight"); clip libraries may have its own guard. */
+  character?: string;
   /** 0..1 balance; hits drain it, it refills when left alone; at 0 the fighter goes down. */
   poise = 1;
   intent = "";
@@ -201,7 +211,7 @@ export class Fighter {
   private lastHitT = -Infinity;
   private graceUntil = 0;
   private staggerFor = 0;
-  private defense: { kind: Defense; until: number } | null = null;
+  private defense: { kind: Defense; until: number; from: number } | null = null;
   private move: Move | null = null;
   private rise = freshRise();
   private mass = 0;
@@ -416,7 +426,7 @@ export class Fighter {
     const asked = seconds !== undefined && Number.isFinite(seconds) ? seconds : frames ? (frames.length - 1) / REF_HZ : byKind;
     const dur = clamp(asked, 0.2, LIMITS.defend - 0.1);
     const now = this.clock();
-    this.defense = { kind, until: now + dur };
+    this.defense = { kind, until: now + dur, from: now };
     if (this.stance !== "defend") this.setStance("defend");
     else this.stanceT = 0;
     this.gen++; this.inflight = null; // whatever was coming (a step, the previous dodge) is out of date
@@ -458,13 +468,27 @@ export class Fighter {
     } else {
       const step = kind === "dodge.left" ? left : kind === "dodge.right" ? [-left[0], -left[1]] : kind === "dodge.back" ? [-f[0], -f[1]] : null;
       this.ask(kind, "defense", step ? { move: [step[0], step[1]], speed: 0.9 } : {}, (got) => {
-        if (got && !step) dropPose();
+        if (got && got.active !== undefined && Number.isFinite(got.active)) this.clipDefense(got);
+        else if (got && !step) dropPose();
         else if (!got && cancelling) this.ask("guard", "defense", {});
       });
     }
     this.intent = kind;
     this.emit({ type: "defend", who: this.index, kind });
     return true;
+  }
+
+  /**
+   * A defense the motion source answered with a recorded clip: the clip moves the body, so the
+   * overlay's pose and lean go, and the defense lasts as long as the clip acts it out (its `active`
+   * time from when it starts), up to LIMITS.defend. It only ever gets longer.
+   */
+  private clipDefense(c: MotionClip) {
+    const d = this.defense;
+    if (!d) return;
+    for (const e of this.effects) if (e.tag === "defense") { e.joints = undefined; e.tilt = undefined; }
+    const end = Math.min(this.timeOfFrame(c.at) + (c.active ?? 0), d.from + LIMITS.defend - 0.1);
+    if (Number.isFinite(end)) d.until = Math.max(d.until, end);
   }
 
   knockOut() { this.run(() => this.koNow()); }
@@ -902,7 +926,12 @@ export class Fighter {
     const n = Math.hypot(mx, my);
     if (n > 1e-6) { mx /= n; my /= n; }
     const hold = crowded ? 0.25 : 0.8 + this.rand() * 0.6;
-    this.ask(name, "footwork", { move: [mx, my], speed }, () => { this.nextFootworkAt = this.clock() + hold; });
+    // a step clip is one whole step: let it play out before asking for the next (crowded footwork
+    // re-asks every 0.25 s, which cut 0.9 s clips short); a plan just continues from where it is
+    this.ask(name, "footwork", { move: [mx, my], speed }, (clip) => {
+      const left = clip?.source.startsWith("clip:step") ? this.ref.remaining / REF_HZ - this.stepLag : 0;
+      this.nextFootworkAt = this.clock() + Math.max(hold, left);
+    });
   }
 
   /**
@@ -1087,7 +1116,10 @@ export class Fighter {
     this.intent = stage === 0 ? "getting up: onto knees" : "getting up: standing";
     if (stage === 1) { this.rise.cap = Math.max(this.rise.assist > 0 ? this.rise.cap : 0, TUNE.standHelp); this.rise.assist = Math.max(this.rise.assist, 0.01); }
     this.ask(stage === 0 ? "getup.knees" : "getup.stand", "getup", { fromRobot: true, stage, speed: -1, seed: TUNE.getupSeed ?? undefined }, (clip) => {
-      if (!clip) this.rise.failed = true;
+      if (!clip) { this.rise.failed = true; return; }
+      // a get-up that ends standing (one clip from the floor all the way up) plays to its end
+      const last = clip.frames[clip.frames.length - 1];
+      this.rise.full = stage === 0 && last[2] > TUNE.upHeight && tiltOf([last[3], last[4], last[5], last[6]]) < 0.3 ? (clip.frames.length - 1) / REF_HZ : 0;
     });
   }
 
@@ -1105,7 +1137,8 @@ export class Fighter {
     }
     r.stageT += dt;
     // onto the next stage once the body is up on its knees
-    if (!lastStage && h > 0.16 && tilt < 0.9 && this.ref.remaining < 20 && r.stageT > 0.3) {
+    // (one that goes all the way up gets to finish, and 0.5 s more for the body to catch up)
+    if (!lastStage && h > 0.16 && tilt < 0.9 && (r.full > 0 ? r.stageT > r.full + 0.5 : this.ref.remaining < 20) && r.stageT > 0.3) {
       r.stage = 1;
       this.planStage();
       return;
@@ -1118,7 +1151,7 @@ export class Fighter {
     }
     // the plan ran out short of the goal: plan again from here, with a bit more help each time,
     // so the body still follows a human get-up instead of levitating
-    if (this.ref.remaining === 0 && r.stageT > 0.8) {
+    if (this.ref.remaining === 0 && r.stageT > Math.max(0.8, r.full + 0.5)) {
       r.tries++;
       r.cap = Math.min(0.95, (r.assist > 0 ? r.cap : 0) + TUNE.retryHelp);
       r.assist = Math.max(r.assist, 0.01);
