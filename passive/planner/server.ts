@@ -15,7 +15,7 @@ const planner = await OnnxPlanner.load(ort as never, model);
 console.log(`planner loaded in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
 
 let served = 0, totalMs = 0;
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") { res.writeHead(204).end(); return; }
@@ -36,4 +36,11 @@ createServer(async (req, res) => {
   } catch (e) {
     res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: String(e) }));
   }
-}).listen(PORT, "127.0.0.1", () => console.log(`planner on http://127.0.0.1:${PORT}`));
+});
+server.on("error", (e: NodeJS.ErrnoException) => {
+  if (e.code !== "EADDRINUSE") throw e;
+  console.error(`planner: port ${PORT} is already in use, so a planner is probably running already.`);
+  console.error(`Stop it, or run this one on another port with PLANNER_PORT=8788 (and start the rig with the same PLANNER_PORT).`);
+  process.exit(1);
+});
+server.listen(PORT, "127.0.0.1", () => console.log(`planner on http://127.0.0.1:${PORT}`));
