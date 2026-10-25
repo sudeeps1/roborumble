@@ -6,7 +6,7 @@
 import type { Attack } from "./attacks.ts";
 import { Combat, type HitResult, type Impact } from "./combat.ts";
 import type { ArenaEvent, ArenaListener, Who } from "./events.ts";
-import { Fighter, TUNE } from "./fighter.ts";
+import { Fighter, type InstantHit, TUNE, missedInstant } from "./fighter.ts";
 import type { MotionSource } from "./motion.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SUBSTEPS, type SonicPolicy } from "./sonic.ts";
@@ -140,7 +140,8 @@ export class Arena {
   }
 
   /** The rig's instant attacks: `attack` lands on fighter `target`, thrown from the other one. */
-  hitInstant(target: Who, attack: Attack, scale = 1) {
+  hitInstant(target: Who, attack: Attack, scale = 1): InstantHit {
+    if (target !== 0 && target !== 1) return missedInstant("no such fighter");
     const d = this.fighters[target];
     return this.batch(() => d.hitInstant(attack, this.world.rootPos(d.opponent.robot), scale, (imp, res) => this.scoreHit(imp, d, res)));
   }

@@ -32,5 +32,6 @@ export function pushDirection(dir: Dir, fx: number, fy: number): [number, number
     case "left": return [0.45 * fx - 0.9 * fy, 0.45 * fy + 0.9 * fx, 0];
     case "right": return [0.45 * fx + 0.9 * fy, 0.45 * fy - 0.9 * fx, 0];
     case "low": return [fx, fy, -0.3];
+    default: return [fx, fy, 0]; // unknown: straight through
   }
 }

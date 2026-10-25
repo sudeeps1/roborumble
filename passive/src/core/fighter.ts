@@ -23,7 +23,7 @@ import { DEFAULT_ANGLES, NJ } from "./g1.ts";
 import { axisAngleQuat, clamp, dist2, finite3, qmul, tiltOf, yawOf } from "./math.ts";
 import type { MotionAsk, MotionClip, MotionName, MotionSource, StrikeWindow } from "./motion.ts";
 import { contextFromReference } from "./planner.ts";
-import { type Frame, REF_HZ, Reference, copyFrame, poseFrame, resample, sanitizeFrames, waistToHips } from "./reference.ts";
+import { type Frame, REF_HZ, Reference, copyFrame, mixFrames, poseFrame, resample, sanitizeFrames, waistToHips } from "./reference.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SonicController, type SonicPolicy } from "./sonic.ts";
 import type { RobotHandle, World } from "./world.ts";
@@ -288,18 +288,19 @@ export class Fighter {
   }
   private startMove(qpos: ArrayLike<number>[], fps: number, strikes: readonly StrikeWindow[], name: string): boolean {
     if (this.stance !== "idle" && this.stance !== "defend") return false;
-    const frames = this.clipFrames(qpos, fps);
-    if (!frames) return false;
+    const windows = asWindows(strikes);
+    const frames = windows ? this.clipFrames(qpos, fps) : null;
+    if (!windows || !frames) return false;
     this.gen++; this.inflight = null; // no footwork or dodge answer may land on top of the move
     this.defense = null;
     this.effects = this.effects.filter((e) => e.tag !== "defense");
     this.setStance("move");
     this.attackSerial++;
-    const start = this.ref.now + 1;
+    const start = this.startFrame();
     this.raw.splice(frames.map(copyFrame), start, 8);
     this.ref.splice(waistToHips(frames), start, 8);
     const t0 = this.timeOfFrame(start);
-    this.combat.arm(this, this.opponent, strikes ?? [], t0);
+    this.combat.arm(this, this.opponent, windows, t0);
     this.move = { name, endT: t0 + (frames.length - 1) / REF_HZ + 0.25, punch: null };
     this.intent = `move: ${name}`;
     this.emit({ type: "move", who: this.index, name });
@@ -321,7 +322,7 @@ export class Fighter {
     if (this.stance !== "idle" && this.stance !== "defend" && !cancelling) return false;
     const frames = clip ? this.clipFrames(clip.qpos, clip.fps) : null;
     if (clip && !frames) return false;
-    if (cancelling) { this.move = null; this.combat.disarm(this, "interrupted", true); }
+    if (cancelling) { this.move = null; this.combat.disarm(this, "interrupted", true); this.cutMotion(); }
     const byKind = kind === "block" ? 0.8 : kind === "duck" ? 0.6 : kind === "jump" ? 0.5 : 0.6;
     const asked = seconds !== undefined && Number.isFinite(seconds) ? seconds : frames ? (frames.length - 1) / REF_HZ : byKind;
     const dur = clamp(asked, 0.2, LIMITS.defend - 0.1);
@@ -361,7 +362,7 @@ export class Fighter {
     // else the overlay acts it out. Dodges also step that way; a cancelled punch stops stepping in.
     const dropPose = () => { for (const e of this.effects) if (e.tag === "defense") e.joints = undefined; }; // the clip has the pose
     if (frames) {
-      const start = this.ref.now + 1;
+      const start = this.startFrame();
       this.raw.splice(frames.map(copyFrame), start, 8);
       this.ref.splice(waistToHips(frames), start, 8);
       dropPose();
@@ -435,7 +436,7 @@ export class Fighter {
       // A light hit while this fighter's own strike is live is a trade: both land, nobody stops.
       const trade = this.stance === "move" && this.combat.active(this, now) && s < 0.5;
       if (!trade) {
-        if (this.stance === "move") { this.combat.disarm(this, "interrupted"); this.move = null; }
+        if (this.stance === "move") { this.combat.disarm(this, "interrupted"); this.move = null; this.cutMotion(); }
         this.defense = null;
         this.effects = this.effects.filter((e) => e.tag !== "defense");
         this.staggerFor = 0.25 + 0.5 * s + 0.3 * (1 - this.poise); // wobblier when nearly out of balance
@@ -452,7 +453,10 @@ export class Fighter {
   }
 
   /** The rig's instant attacks (attacks.ts): a hit from `from` (world xy) with no fist involved. */
-  hitInstant(a: Attack, from: ArrayLike<number>, scale = 1, scored?: (imp: Impact, res: HitResult) => void): { point: number[]; force: number[]; result: HitResult; impact: Impact } {
+  hitInstant(a: Attack, from: ArrayLike<number>, scale = 1, scored?: (imp: Impact, res: HitResult) => void): InstantHit {
+    if (!a || !(a.force >= 0) || !(a.duration > 0) || !Array.isArray(a.offset) || a.offset.length < 3 || !a.offset.every(Number.isFinite) || !from || !Number.isFinite(from[0]) || !Number.isFinite(from[1])) {
+      return missedInstant("bad attack");
+    }
     const body = this.robot.bodies.get(a.body) ?? this.robot.bodies.get("torso_link")!;
     const me = this.world.rootPos(this.robot);
     let fx = me[0] - from[0], fy = me[1] - from[1];
@@ -471,6 +475,31 @@ export class Fighter {
 
   /** The arena rolled the physics back (or moved this robot): carry on from the pose it is in. */
   afterRestore() { this.run(() => this.restartFromPose()); }
+
+  /**
+   * Puts the fighter back at (x, y) after a failure (it left the arena, the physics was reset):
+   * standing, untouchable for a moment. A KO'd body is put down there instead and stays KO'd.
+   */
+  relocate(x: number, y: number, yaw: number) {
+    this.run(() => { if (this.stance === "ko") this.relocateKO(x, y, yaw); else this.spawnNow(x, y, yaw, TUNE.grace); });
+  }
+
+  private relocateKO(x: number, y: number, yaw: number) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { x = 0; y = 0; }
+    if (!Number.isFinite(yaw)) yaw = 0;
+    this.gen++; this.inflight = null;
+    this.epoch++;
+    const pose = this.world.placeStanding(this.robot, x, y, yaw, CRUMPLE); // folded, and it falls limp from there
+    this.ref.replace([pose], this.ref.now);
+    this.raw.replace([copyFrame(pose)], this.raw.now);
+    this.ctl.reset();
+    this.ctl.active = false; this.ctl.hold = null;
+    this.body.invalidate();
+    this.combat.disarm(this, "interrupted", true);
+    this.pulses = []; this.hist = []; this.effects = [];
+    this.move = null; this.defense = null;
+    this.nowT = this.clock();
+  }
   private restartFromPose() {
     this.gen++; this.inflight = null;
     this.epoch++;
@@ -484,12 +513,19 @@ export class Fighter {
     this.ctl.worldHeading();
     this.move = null; this.defense = null;
     this.nowT = this.clock();
-    if (this.stance === "ko") return;
-    if (this.standing()) { this.forceStance("idle"); this.nextFootworkAt = 0; this.intent = "ready"; return; }
-    // on the floor or on the way: settle and get up again
+    if (this.stance === "ko") { this.ctl.active = false; this.ctl.hold = null; return; }
     this.assistOff();
-    this.ctl.active = true; this.ctl.hold = BRACE; this.ctl.stiffness = 0.3;
     this.rise = freshRise();
+    // the stance comes from the body the rollback restored, not from before it
+    if (pose[2] > TUNE.upHeight && tiltOf([pose[3], pose[4], pose[5], pose[6]]) < 0.3) {
+      this.ctl.active = true; this.ctl.hold = null; this.ctl.stiffness = 1;
+      this.forceStance("idle");
+      this.nextFootworkAt = 0;
+      this.intent = "ready";
+      return;
+    }
+    // on the floor or on the way: settle and get up again
+    this.ctl.active = true; this.ctl.hold = BRACE; this.ctl.stiffness = 0.3;
     this.forceStance("falling");
   }
 
@@ -601,6 +637,7 @@ export class Fighter {
 
   private toIdle(reason: WhiffReason = "out of range") {
     if (this.combat.pending(this)) this.combat.disarm(this, reason);
+    if (this.inflight && this.inflight.purpose !== "footwork") this.inflight = null; // its answer was for the stance that ended
     this.move = null;
     this.defense = null;
     this.effects = this.effects.filter((e) => e.tag !== "defense");
@@ -612,7 +649,7 @@ export class Fighter {
   private timeout() {
     switch (this.stance) {
       case "stagger": case "defend": this.toIdle(); break;
-      case "move": this.gen++; this.inflight = null; this.toIdle("interrupted"); break;
+      case "move": this.gen++; this.inflight = null; this.cutMotion(); this.toIdle("interrupted"); break;
       case "falling": this.toDown(); break;
       case "down": this.startRise(); break;
       case "rising": this.failsafe("stuck getting up"); break;
@@ -620,13 +657,13 @@ export class Fighter {
     }
   }
 
-  /** Last resort: stand up right here (or the nearest clear spot), facing the opponent. */
+  /** Last resort: stand up right here (or the nearest clear spot), facing the opponent. A KO'd body stays KO'd. */
   private failsafe(what: string) {
     const o = this.world.rootPos(this.opponent.robot);
     const [x, y] = safeSpot(this.world.rootPos(this.robot), o);
     const yaw = finite3(o) ? Math.atan2(o[1] - y, o[0] - x) : 0;
     this.stats.failsafes++;
-    this.spawn(x, y, yaw, TUNE.grace);
+    this.relocate(x, y, yaw);
     this.emit({ type: "failsafe", who: this.index, what });
   }
 
@@ -649,6 +686,16 @@ export class Fighter {
 
   /** Sim time at which absolute reference frame `a` plays. */
   private timeOfFrame(a: number) { return this.nowT + (a - this.ref.now) / REF_HZ; }
+
+  /**
+   * The frame a move handed in now starts on: two control ticks after the current one, by sim
+   * time. Both fighters land on the same tick even when one has already advanced its motion this
+   * tick and the other hasn't (a call from inside an event), so moves started together play together.
+   */
+  private startFrame(): number {
+    const t = this.clock() + 2 / REF_HZ;
+    return this.ref.now + Math.max(1, Math.round((t - this.nowT) * REF_HZ));
+  }
 
   /**
    * Asks the motion source for `name` and splices the answer in when it comes. One request at a
@@ -677,7 +724,7 @@ export class Fighter {
       if (!this.stillWants(purpose, stage)) { this.stats.staleDrops++; return; }
       if (!clip) { this.stats.noMotion++; done(null); return; }
       if (!this.usable(clip)) { fail(); return; }
-      const blend = clamp(Math.round(clip.blend ?? 8), 1, 30);
+      const blend = clip.blend !== undefined && Number.isFinite(clip.blend) ? clamp(Math.round(clip.blend), 1, 30) : 8;
       this.raw.splice(clip.frames.map(copyFrame), clip.at, blend);
       this.ref.splice(purpose === "getup" ? clip.frames : waistToHips(clip.frames), clip.at, blend);
       this.stats.applied++;
@@ -778,10 +825,27 @@ export class Fighter {
   /** No motion source: hold a standing guard facing the opponent. */
   private holdGuard(me: number[], yaw: number) {
     if (this.ref.remaining > 10) return;
-    const f = poseFrame([me[0], me[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES);
-    this.ref.splice([f], this.ref.now + 1, 8);
-    this.raw.splice([copyFrame(f)], this.raw.now + 1, 8);
+    this.easeTo(poseFrame([me[0], me[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES), 15);
     this.intent = "guard (no motion source)";
+  }
+
+  /**
+   * An interrupted punch or clip stops now: the motion eases into a standing guard (0.2 s) instead
+   * of playing on. The guard plan asked for next replaces it when it comes.
+   */
+  private cutMotion() {
+    const [fx, fy] = this.facingOpponent(), yaw = Math.atan2(fy, fx);
+    const f = this.raw.at(this.raw.now + 1);
+    this.easeTo(poseFrame([f[0], f[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES), 10);
+  }
+
+  /** Replaces the motion after "now" with a blend from where it is to `target` over n frames, then holds it. */
+  private easeTo(target: Frame, n: number) {
+    const at = this.raw.now + 1, from = copyFrame(this.raw.at(at));
+    const frames: Frame[] = [];
+    for (let k = 1; k <= n; k++) frames.push(mixFrames(from, target, k / n));
+    this.raw.splice(frames.map(copyFrame), at, 1);
+    this.ref.splice(waistToHips(frames), at, 1);
   }
 
   // ================= moves and punches =================
@@ -817,7 +881,7 @@ export class Fighter {
     this.ask(pu.name, "punch", {}, (clip) => {
       if (!clip) { this.toIdle("interrupted"); return; }
       const t0 = this.timeOfFrame(clip.at);
-      const strikes = (clip.strikes ?? []).map((w) => ({ ...w, power: w.power * pu.power }));
+      const strikes = (asWindows(clip.strikes) ?? []).filter((w) => w && Number.isFinite(w.to)).map((w) => ({ ...w, power: w.power * pu.power }));
       this.combat.arm(this, this.opponent, strikes, t0);
       const clipEnd = (clip.frames.length - 1) / REF_HZ;
       const lastStrike = strikes.reduce((m, w) => Math.max(m, w.to), 0);
@@ -1072,6 +1136,21 @@ export class Fighter {
       rise: { ...this.rise }, grace: Math.max(0, this.graceUntil - this.clock()),
     };
   }
+}
+
+export interface InstantHit { point: number[]; force: number[]; result: HitResult; impact: Impact | null }
+
+/** What hitInstant returns when the attack didn't happen. */
+export function missedInstant(why: string): InstantHit {
+  return { point: [0, 0, 0], force: [0, 0, 0], result: { landed: false, blocked: false, knockdown: false, ignored: why }, impact: null };
+}
+
+/** Strike windows from what a caller passed: none, one, or a list. Null for anything else. */
+function asWindows(s: unknown): StrikeWindow[] | null {
+  if (s === undefined || s === null) return [];
+  if (Array.isArray(s)) return s as StrikeWindow[];
+  if (typeof s === "object") return [s as StrikeWindow];
+  return null;
 }
 
 /** A place to stand a fighter back up: inside the ring and at least `clear` m from the other one. */

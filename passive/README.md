@@ -182,7 +182,13 @@ power, and a key time when the strike is meant to land.
   at full reach still counts. Against a guard that holds its ground, 15 of 16 punches land; a
   miss reports how close it got.
 - **`rules`:** at the key time the strike lands unless the defender evades it or is more than
-  0.45 m away. Use it for moves that don't aim, like Kimodo clips, where the game's rules decide.
+  0.45 m away. It resolves at the first tick at or after the key time, even one just past the
+  window's end. Use it for moves that don't aim, like Kimodo clips, where the game's rules decide.
+
+Each tick resolves in two phases: every window that connects is found first, then the hits are
+applied. Two strikes that land in the same tick both land, whichever was started first. Moves
+handed in together (`playMove`, or `defend` with a clip) start on the same tick for both
+fighters, two ticks after the call, even when the call comes from inside an event.
 
 Impact strength:
 - **Push:** power × zone (head 26, torso 30, legs 20 N·s) × strike speed / 4 m/s. Glancing hits
@@ -193,7 +199,8 @@ Impact strength:
   and the body buckles at the knees.
 - **Counters** (hitting a fighter mid-attack) take 1.5x balance and do 1.25x damage.
 - **Trades:** a light hit (under 15 N·s) while the hit fighter's own strike is live doesn't stop
-  its strike. Anything heavier interrupts it.
+  its strike. Anything heavier interrupts it, and the interrupted move eases into a guard at once
+  instead of playing on.
 - **Blocks:**
   - A block stops hits that reach the forearms, or that come from the front (within ±75°) and
     aren't low.
@@ -242,13 +249,16 @@ A full assisted lift is the fallback in these cases:
   - it is usable: finite, joints clamped to their limits, placed near "now", not too long
 
   A request that never comes back is dropped after 4 s, and the fighter carries on.
-- **Every call that takes outside input refuses bad input** and returns `false`: unknown names,
-  NaN power or times, broken or too-long clips, unknown limbs.
+- **Every call that takes outside input refuses bad input** and returns `false` (or a miss)
+  instead of throwing: unknown names, NaN power or times, broken or too-long clips, unknown
+  limbs, strikes that aren't a list, bad instant attacks.
 - **`Arena.tick()` never throws.** Errors are counted and reported as `failsafe` events.
 - **If the physics blows up** (NaN, or MuJoCo resetting itself), it rolls back to the last
   snapshot (every 0.5 s). If it blows up again within a second, both fighters are respawned.
 - **A body that leaves the arena, or a get-up stuck for 22 s,** is stood back up on the spot, or
-  the nearest clear spot.
+  the nearest clear spot. A KO'd body is put back down there instead and stays KO'd.
+- **After a rollback,** each fighter's stance comes from the body that was restored: standing
+  means idle, anything else falls and gets up again.
 - **Motion drift:** SONIC follows the motion's joints and heading, not its position. After pushes,
   the motion is moved back under the body before the next footwork plan.
 

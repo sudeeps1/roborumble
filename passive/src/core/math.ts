@@ -83,7 +83,8 @@ export function tiltOf(q: ArrayLike<number>): number {
 }
 
 export const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-export const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+/** v limited to [lo, hi]; NaN comes out as lo, so a bad number can't slip through a bound. */
+export const clamp = (v: number, lo: number, hi: number) => (v > hi ? hi : v >= lo ? v : lo);
 
 /** Unit quaternion for a rotation of `angle` rad about axis (ax, ay, az) (any length > 0). */
 export function axisAngleQuat(ax: number, ay: number, az: number, angle: number, out: number[] = [1, 0, 0, 0]): number[] {

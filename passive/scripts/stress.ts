@@ -154,6 +154,14 @@ arena.on((e) => {
   lastTo[e.who] = e.to;
 });
 
+// a KO ends only with a fresh spawn (a reset), and is reported once
+const leftKO = [false, false], koCount = [0, 0];
+arena.on((e) => {
+  if (e.type === "stance" && e.from === "ko") leftKO[e.who] = true;
+  if (e.type === "spawn") { leftKO[e.who] = false; koCount[e.who] = 0; }
+  if (e.type === "ko" && ++koCount[e.who] > 1) fail(`${arena.fighters[e.who].name} reported KO twice`);
+});
+
 // listeners that act on events, the way game code will: they must always see a settled fighter
 let poked = 0;
 if (!FIGHT) arena.on((e) => {
@@ -174,6 +182,7 @@ function check() {
     if (!finite3(p)) fail(`${f.name} root not finite`);
     if (f.stanceT > LIMITS[f.stance] + 1e-6) fail(`${f.name} ${f.stance} for ${f.stanceT.toFixed(2)} s (limit ${LIMITS[f.stance]})`);
     if (f.stats.badTransitions) { fail(`${f.name} bad transition ${f.lastBadTransition}`); f.stats.badTransitions = 0; }
+    if (leftKO[i]) { fail(`${f.name} left KO without a reset`); leftKO[i] = false; }
     if (lastTo[i] !== null && lastTo[i] !== f.stance) { fail(`${f.name} is ${f.stance} but its last stance event said ${lastTo[i]}`); lastTo[i] = f.stance; }
     if (f.stats.errors) { fail(`${f.name} error: ${f.lastEvent}`); f.stats.errors = 0; }
     const d = f.debug();
