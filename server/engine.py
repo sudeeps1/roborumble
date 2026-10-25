@@ -37,6 +37,9 @@ class MockEngine:
     def __init__(self) -> None:
         self.last_ms = 0.0
 
+    def pose_constraints(self, rows: np.ndarray, frame_indices: list[int]) -> list[dict[str, Any]]:
+        return [{"type": "fullbody", "frame_indices": list(frame_indices), "mock": True}]
+
     def generate(self, reqs: list[Request], steps: int) -> list[Generated]:
         t0 = time.time()
         out = [self._one(r) for r in reqs]
@@ -87,10 +90,41 @@ class KimodoEngine:
         self.load_ms = (time.time() - t0) * 1000
         self.last_ms = 0.0
 
+    def pose_constraints(self, rows: np.ndarray, frame_indices: list[int]) -> list[dict[str, Any]]:
+        """G1 qpos keyframes (K, 36) -> one Kimodo `fullbody` constraint dict (Kimodo frame, axis-angle)."""
+        from kimodo.geometry import matrix_to_axis_angle
+
+        # The converter smooths the root over time, which fails on a handful of isolated frames, so convert a
+        # dense clip interpolated between the keyframes and read the keyframes back out of it.
+        rows = np.asarray(rows, dtype=np.float64).copy()
+        for i in range(1, len(rows)):  # same quaternion hemisphere before interpolating
+            if rows[i, 3:7] @ rows[i - 1, 3:7] < 0:
+                rows[i, 3:7] *= -1
+        idx = np.asarray(frame_indices)
+        n = max(int(idx.max()) + 1, 36)
+        dense = np.stack([np.interp(np.arange(n), idx, rows[:, c]) for c in range(rows.shape[1])], axis=1)
+        dense[:, 3:7] /= np.linalg.norm(dense[:, 3:7], axis=1, keepdims=True)
+        qpos = self.torch.tensor(dense.astype(np.float32), device=self.device)  # skeleton lives on the GPU
+        md = self.converter.qpos_to_motion_dict(qpos, 30)
+        rots, root = md["local_rot_mats"], md["root_positions"]
+        if rots.dim() == 5:
+            rots, root = rots[0], root[0]
+        rots, root = rots[idx], root[idx]
+        return [{"type": "fullbody", "frame_indices": [int(i) for i in frame_indices],
+                 "local_joints_rot": matrix_to_axis_angle(rots).float().cpu().tolist(),
+                 "root_positions": root.float().cpu().tolist()}]
+
     def generate(self, reqs: list[Request], steps: int) -> list[Generated]:
+        if any(r.constraints for r in reqs):  # constrained clips go one at a time, the way kimodo_gen runs them
+            out = []
+            for r in reqs:
+                out += self._generate([r], steps)
+            return out
+        return self._generate(reqs, steps)
+
+    def _generate(self, reqs: list[Request], steps: int) -> list[Generated]:
         t0 = time.time()
         frames = [r.frames for r in reqs]
-        constrained = any(r.constraints for r in reqs)
         cfg = next((list(r.cfg_weight) for r in reqs if r.cfg_weight), [2.0, 2.0])
         kwargs: dict[str, Any] = dict(
             prompts=[r.prompt for r in reqs],
@@ -100,12 +134,12 @@ class KimodoEngine:
             cfg_weight=cfg,
             post_processing=False,  # always off for G1 anyway
         )
-        if constrained:
-            # UNVERIFIED: docs/kimodo-g1.md only says load_constraints_lst accepts a path or a list of dicts.
-            # Check its signature in kimodo/constraints.py on the GPU box before Forge goes live.
+        if reqs[0].constraints:
+            # kimodo_gen's path: one prompt as a one-segment multi-prompt, a flat constraint list
             from kimodo.constraints import load_constraints_lst
 
-            kwargs["constraint_lst"] = [load_constraints_lst(r.constraints or [], self.model.skeleton) for r in reqs]
+            kwargs.update(multi_prompt=True, num_frames=[frames[0]], num_samples=1, cfg_type="separated",
+                          constraint_lst=load_constraints_lst(reqs[0].constraints, self.model.skeleton, device=self.device))
         with self.torch.inference_mode():
             out = self.model(**kwargs)
             qpos = np.asarray(self.converter.dict_to_qpos(out, self.device))

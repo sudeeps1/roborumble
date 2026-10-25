@@ -5,6 +5,7 @@ Run: ./server/run.sh  (mock engine on any laptop; ENGINE=kimodo on the GPU box)
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
 from contextlib import asynccontextmanager
@@ -15,7 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, voice, wildcard
+import numpy as np
+
+from . import config, forge, voice, wildcard
 from .engine import make_engine
 from .g1 import joint_limits
 from .jobs import AGENT, LIVE, Job, JobQueue
@@ -290,6 +293,67 @@ async def voice_shout(room: str = Form(...), player: int = Form(...), loudness: 
         return JSONResponse({"result": "silence", "transcript": text}, status_code=200)
     out = await shout(room, player, text, max(0.0, min(1.0, loudness)))
     return {"transcript": text, "stt_ms": stt_ms, **out}
+
+
+# ---------- Forge: a move the player acted out ----------
+forge_jobs: dict[str, dict[str, Any]] = {}
+
+
+@api.post("/forge")
+async def forge_start(request: Request):
+    body = await request.json()
+    nickname = str(body.get("nickname") or "").strip()[:16] or "Player"
+    name = str(body.get("name") or "").strip()[:40]
+    if not name:
+        raise HTTPException(400, "name your spell")
+    try:
+        p = await asyncio.to_thread(forge.plan, body.get("landmarks") or [], float(body.get("fps") or 30),
+                                    name, float(body.get("wild") if body.get("wild") is not None else 0.5))
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, f"couldn't read the recording: {e}")
+    constraints = None
+    if p["constraints_rows"] is not None:
+        constraints = await asyncio.to_thread(engine.pose_constraints, p["constraints_rows"], p["frame_indices"])
+    spec = _clean_spec(p["spec"], "forge")
+    spec.update(source="forge", creator=nickname)
+    job = jobs.reserve(LIVE)
+    forge_jobs[job.id] = {"nickname": nickname, "name": name, "landmarks": body.get("landmarks"), "fps": body.get("fps"),
+                          "keyframes": p["frame_indices"], "fit": p["fit"], "kept": None}
+    jobs.start(job, spec, constraints=constraints, cfg_weight=p["cfg"], keep=False)
+    return {"job": job.id, "fit": p["fit"], "prompt": spec["kimodo_prompt"], "keyframes": p["frame_indices"]}
+
+
+@api.get("/forge/{job_id}")
+def forge_status(job_id: str):
+    j = jobs.jobs.get(job_id)
+    if not j or job_id not in forge_jobs:
+        raise HTTPException(404, f"no forge job {job_id}")
+    if j.status != "done":
+        return j.public()
+    preview = None
+    if j.preview is not None and j.preview.joints is not None:
+        preview = np.round(j.preview.joints[:, :, :2], 3).tolist()  # Kimodo frame: x = robot's left, y = up
+    return {"status": "done", "card": j.move, "preview": preview, "kept": forge_jobs[job_id]["kept"],
+            "fit": forge_jobs[job_id]["fit"]}
+
+
+@api.post("/forge/{job_id}/keep")
+def forge_keep(job_id: str):
+    j, info = jobs.jobs.get(job_id), forge_jobs.get(job_id)
+    if not j or not info or j.status != "done" or j.preview is None:
+        raise HTTPException(400, "nothing to keep yet")
+    if info["kept"]:
+        return library.get(info["kept"])
+    motion_id = library.add_motion(j.preview.qpos)
+    move = library.add_move(dict(j.move, motion_id=motion_id))
+    matcher.add(move["id"], move["name"], move.get("aliases") or [])
+    info["kept"] = move["id"]
+    out = config.LIBRARY_DIR / "forge" / move["id"]
+    out.mkdir(parents=True, exist_ok=True)  # the dataset: real human motion with a text label
+    (out / "recording.json").write_text(json.dumps({
+        "move_id": move["id"], "name": info["name"], "nickname": info["nickname"], "fps": info["fps"],
+        "kimodo_prompt": move["kimodo_prompt"], "keyframes": info["keyframes"], "landmarks": info["landmarks"]}))
+    return move
 
 
 # ---------- rooms ----------
