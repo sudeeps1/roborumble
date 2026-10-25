@@ -5,7 +5,7 @@ import * as ort from "onnxruntime-web";
 import { ATTACKS } from "../core/attacks.ts";
 import { Arena, Fighter } from "../core/fighter.ts";
 import { tiltOf } from "../core/math.ts";
-import { HttpPlanner } from "../core/planner.ts";
+import { HttpPlanner, Mode } from "../core/planner.ts";
 import { SonicPolicy } from "../core/sonic.ts";
 import { World } from "../core/world.ts";
 import { View } from "./render.ts";
@@ -80,6 +80,18 @@ const tOpp = button("Opponent (blue)", () => setTarget(opp), "on");
 function setTarget(f: Fighter) { target = f; tYou.classList.toggle("on", f === you); tOpp.classList.toggle("on", f === opp); }
 group("Hit", tYou, tOpp);
 group("Attacks", ...ATTACKS.map((a) => button(a.name, () => attack(target, a.name))));
+
+// Real punches: the other robot steps in and throws one with the planner; the hit lands at the fist.
+const punch = (mode: number, name: string) => {
+  const attacker = target === you ? opp : you;
+  attacker.throwPunch(target, mode, ATTACKS.find((x) => x.name === name)!, strength, (hit) => { if (hit) view.flash(hit.point, hit.force, 0xffd24a); });
+};
+group("Thrown punches (the other robot steps in)",
+  button("Left jab", () => punch(Mode.leftJab, "Jab")),
+  button("Right jab", () => punch(Mode.rightJab, "Jab")),
+  button("Left hook", () => punch(Mode.leftHook, "Hook")),
+  button("Right hook", () => punch(Mode.rightHook, "Hook")),
+);
 const flurry = () => ["Jab", "Body shot", "Hook"].forEach((n, i) => setTimeout(() => attack(target, n), i * 280));
 group("Combos", button("Jab, body, hook", flurry), button("KO", () => target.knockOut()));
 

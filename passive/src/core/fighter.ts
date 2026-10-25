@@ -25,6 +25,7 @@ const DOWN_BEAT = 1.1;       // s on the floor before getting up
 const STAGGER_S = 0.7;
 const UP_HEIGHT = 0.66;
 const RANGE = [1.1, 1.6];    // preferred distance to the opponent (m)
+const PUNCH_RANGE = 0.78;    // pelvis-to-pelvis distance a G1 can land a punch from
 
 // Getting up in stages, each planned from the pose the robot actually reached. SONIC gets itself
 // from the floor onto its knees; for the stand-up it follows the planner with light invisible help
@@ -67,6 +68,9 @@ export class Fighter {
   private assistCap = 1;
   private mass = 0;
   private seed: number;
+  private punch: { mode: number; target: Fighter; approachT: number; stepping: boolean } | null = null;
+  private pendingStrike: Fighter["strike"] = null;
+  private strike: { hand: number; attack: Attack; target: Fighter; scale: number; t: number; minD: number; lastD: number; onLand?: (hit: { point: number[]; force: number[] } | null) => void } | null = null;
 
   constructor(name: string, world: World, robot: RobotHandle, policy: SonicPolicy, seed = 1) {
     this.name = name;
@@ -89,6 +93,7 @@ export class Fighter {
     this.pulses = []; this.hist = [];
     this.setStance("idle");
     this.nextPlanAt = 0; this.planInFlight = false; this.riseTries = 0; this.assist = 0;
+    this.punch = null; this.strike = null; this.pendingStrike = null;
   }
 
   /** Lands an attack thrown from `from` (world xy). Returns the contact point and push (world). */
@@ -131,6 +136,78 @@ export class Fighter {
     return true;
   }
 
+  /**
+   * Throws a real punch at `target` with a planner punch mode (stepping in while it punches).
+   * The hit lands when the fist gets near the target's head; a punch thrown from too far whiffs.
+   * `onLand(point, force)` fires when it connects (or with null on a miss).
+   */
+  throwPunch(target: Fighter, mode: number, attack: Attack, scale = 1, onLand?: (hit: { point: number[]; force: number[] } | null) => void) {
+    // an in-flight footwork plan is fine: followPunch waits for it, and it's dropped on arrival
+    if (!this.planner || (this.stance !== "idle" && this.stance !== "stagger")) return false;
+    const left = mode === Mode.leftJab || mode === Mode.leftHook;
+    const hand = this.robot.bodies.get(left ? "left_wrist_yaw_link" : "right_wrist_yaw_link")!;
+    this.setStance("move");
+    this.punch = { mode, target, approachT: 0, stepping: false };
+    this.strike = null;
+    this.pendingStrike = { hand, attack, target, scale, t: 0, minD: Infinity, lastD: Infinity, onLand };
+    this.intent = `stepping in for a ${attack.name.toLowerCase()}`;
+    return true;
+  }
+
+  /** Step into range with boxing footwork, then throw. */
+  private followPunch(dt: number) {
+    const pu = this.punch;
+    if (!pu || this.planInFlight) return;
+    const me = this.world.rootPos(this.robot), o = this.world.rootPos(pu.target.robot);
+    let fx = o[0] - me[0], fy = o[1] - me[1];
+    const d = Math.hypot(fx, fy) || 1; fx /= d; fy /= d;
+    pu.approachT += dt;
+    if (d > PUNCH_RANGE && pu.approachT < 2.4) {
+      if (!pu.stepping || this.ref.remaining < 20) { // keep a stepping-in plan going
+        pu.stepping = true;
+        this.requestPlan(Mode.walkBoxing, [fx, fy, 0], [fx, fy, 0], 0.85, 0);
+      }
+      return;
+    }
+    // in range (or out of patience): throw it
+    this.punch = null;
+    this.intent = `throwing ${this.pendingStrike?.attack.name.toLowerCase()}`;
+    const { context, genFrame } = contextFromReference(this.ref);
+    this.planInFlight = true;
+    this.planner!.plan({ context, mode: pu.mode, movement: [fx, fy, 0], facing: [fx, fy, 0], speed: 0.2 })
+      .then((flat) => {
+        if (this.stance !== "move") return;
+        applyPlan(this.ref, flat, genFrame);
+        this.strike = this.pendingStrike;
+        this.pendingStrike = null;
+      })
+      .catch((e) => { this.lastEvent = `planner: ${e.message ?? e}`; this.setStance("idle"); })
+      .finally(() => { this.planInFlight = false; });
+  }
+
+  private followStrike(dt: number) {
+    const st = this.strike;
+    if (!st) return;
+    st.t += dt;
+    const head = st.target.robot.bodies.get("torso_link")!;
+    const hp = this.world.bodyPos(st.hand), tp = st.target.pointOn(head, [0.06, 0, 0.36]);
+    const dist = Math.hypot(hp[0] - tp[0], hp[1] - tp[1], hp[2] - tp[2]);
+    st.minD = Math.min(st.minD, dist);
+    const retracting = dist > st.lastD + 0.004 && st.t > 0.2;
+    st.lastD = dist;
+    if (dist < 0.3 || (retracting && st.minD < 0.55) || st.t > 1.6) {
+      this.strike = null;
+      if (st.minD < 0.55) {
+        const hit = st.target.hit(st.attack, this.world.rootPos(this.robot), st.scale * (st.minD < 0.3 ? 1 : 0.75));
+        this.lastEvent = `${st.attack.name} landed`;
+        st.onLand?.(hit);
+      } else {
+        this.lastEvent = `${st.attack.name} missed (${st.minD.toFixed(2)} m short)`;
+        st.onLand?.(null);
+      }
+    }
+  }
+
   knockOut() {
     this.ctl.active = false;
     this.setStance("ko");
@@ -142,7 +219,7 @@ export class Fighter {
     this.lowT = 0;
   }
 
-  private pointOn(body: number, local: ArrayLike<number>): number[] {
+  pointOn(body: number, local: ArrayLike<number>): number[] {
     const d = this.world.data, q = [d.xquat[body * 4], d.xquat[body * 4 + 1], d.xquat[body * 4 + 2], d.xquat[body * 4 + 3]];
     const p = qrot(q, local);
     return [p[0] + d.xpos[body * 3], p[1] + d.xpos[body * 3 + 1], p[2] + d.xpos[body * 3 + 2]];
@@ -179,8 +256,14 @@ export class Fighter {
         this.rising(h, tilt);
         break;
       case "move":
-        if (tilt > FALL_TILT || h < FALL_HEIGHT) { this.startFall(); break; }
-        if (this.ref.remaining === 0) { this.setStance("idle"); this.nextPlanAt = 0; }
+        if (tilt > FALL_TILT || h < FALL_HEIGHT) { this.strike = null; this.punch = null; this.pendingStrike = null; this.startFall(); break; }
+        if (this.punch) { this.followPunch(dt); break; }
+        this.followStrike(dt);
+        if (!this.planInFlight && this.ref.remaining === 0 && !this.pendingStrike) {
+          const st = this.strike;
+          if (st) { this.lastEvent = `${st.attack.name} missed (${st.minD.toFixed(2)} m short)`; st.onLand?.(null); }
+          this.strike = null; this.setStance("idle"); this.nextPlanAt = 0;
+        }
         break;
       case "ko":
         break;
@@ -236,6 +319,7 @@ export class Fighter {
     this.planner.plan({ context, mode, movement, facing, speed, seed: (this.seed = (this.seed * 48271) % 2147483647) })
       .then((flat) => {
         if (this.stance !== stance && !(stance === "stagger" && this.stance === "idle")) return;
+        if (stance === "move" && !this.punch) return; // the punch itself took over
         applyPlan(this.ref, flat, genFrame);
       })
       .catch((e) => { this.lastEvent = `planner: ${e.message ?? e}`; })

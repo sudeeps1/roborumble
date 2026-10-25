@@ -18,7 +18,8 @@ npm run dev              # terminal 2: open http://localhost:5180
 Without the planner running, the robots just hold a standing guard, and get-ups fall back to the
 assisted lift. `?ep=webgpu` runs SONIC on the GPU instead of wasm.
 
-Rig controls: pick a target, then click an attack. Keys `1`-`7` throw attacks, `K` knocks out,
+Rig controls: pick a target, then click an attack (an instant hit) or a thrown punch (the other
+robot steps in and really throws it). Keys `1`-`7` throw attacks, `K` knocks out,
 `R` resets, `Space` pauses. Strength scales every attack. Slow-mo is 0.25x.
 
 Headless checks (Node, no browser):
@@ -54,6 +55,12 @@ Headless checks (Node, no browser):
   up 6/6 times in 2.7-3.8 s. A full assisted lift remains only as the no-planner fallback.
 - **ko:** limp and stays down. **move:** playing a clip handed over by the fight code.
 
+### Thrown punches
+The other robot steps into range (pelvis to pelvis about 0.78 m) with `walkBoxing`, then throws a
+planner punch: `leftJab`, `rightJab`, `leftHook` or `rightHook`. The hit lands when its fist
+comes within 0.3 m of the target's head. Within 0.55 m it counts as a glancing hit at 75%;
+anything farther misses. The defender reacts physically, and both go back to footwork.
+
 ### Attack tiers (0.1 s pulse at the torso)
 300 N is a stagger, 500 N is about 1 m of stumbling, and 800 N or more is a knockdown.
 Head hits tip it more easily than body hits.
@@ -64,6 +71,7 @@ const arena = new Arena(world, [p1, p2]);   // steps both fighters on SONIC's cl
 await arena.tick();                          // every 20 ms
 p2.hit(attack, attackerRootXY, scale);       // physics reaction; returns contact point and force
 p1.playMove(kimodoQposRows, 30);             // re-based onto p1, facing p2; back to footwork after
+p1.throwPunch(p2, Mode.leftHook, hookAttack, 1, (hit) => {});  // steps in, punches, lands at the fist
 p2.knockOut();
 p1.stance;                                   // "idle" | "stagger" | "falling" | "down" | "rising" | "ko" | "move"
 ```
