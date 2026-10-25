@@ -35,3 +35,5 @@
 | step.right | step_right.e/0, step_right.e/6 | 94 | 93 | 12/24 | {"fell":false,"along":0.162,"side":0.035,"headingDeg":2.591,"glovesUpEnd":1,"trials":[{"along":0.139,"side":0.042,"heading":2.591,"hands":1,"fell":false,"clipS" |
 | step.right.elf | step_right.elf.a/0, step_right.elf.a/6 | 93 | 93 | 6/8 | {"fell":false,"along":0.204,"side":0.056,"headingDeg":2.977,"glovesUpEnd":1,"trials":[{"along":0.182,"side":0.047,"heading":2.977,"hands":1,"fell":false,"clipS" |
 | step.right.knight | step_right.knight.a/3, step_right.knight.a/5 | 90 | 93 | 3/8 | {"fell":false,"along":0.192,"side":0.061,"headingDeg":5.563,"glovesUpEnd":1,"trials":[{"along":0.216,"side":0.033,"heading":3.546,"hands":1,"fell":false,"clipS" |
+
+Character mesh check (tools/meshcheck, all 5 fighters: elf, knight, sorceress, wizard, frog): dodge_back_1 dropped (arms crossed tight through the chest on every character; the wizard's head thrown back, hat flipped); wrists capped at the guard's angle +-1.2 rad and the joint limits (235 values; one get-up rolled a wrist 164 deg, past its limit).
