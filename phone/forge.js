@@ -186,7 +186,7 @@ async function record() {
   recorded = { landmarks: r.frames, fps: Math.round((r.frames.length / secs) * 10) / 10 };
   hint("Got your move! Type a name for it, then tap Forge it.");
   step("name");
-  $("spellName").focus();
+  playCapture(recorded.landmarks, recorded.fps);
 }
 
 // ---------- forging ----------
@@ -233,7 +233,27 @@ function showResult(s, started) {
   if (s.preview?.length) playPreview(s.preview, c.type);
 }
 
+// Right after recording: loop what the phone caught (MediaPipe's 3D points, front view, mirrored like the
+// camera) so you can judge the tracking itself before naming the move.
+function playCapture(frames, fps) {
+  cancelAnimationFrame(raf); cancelAnimationFrame(previewRaf);
+  $("cam").style.visibility = "hidden";
+  const canvas = $("skel"), ctx = canvas.getContext("2d");
+  canvas.classList.remove("mirror");
+  canvas.width = 480; canvas.height = 640;
+  hint(`Here's what your phone caught (${frames.length} frames). Happy? Type a name and tap Forge it, or record again.`);
+  const start = performance.now();
+  const tick = () => {
+    previewRaf = requestAnimationFrame(tick);
+    const f = frames[Math.floor(((performance.now() - start) / 1000) * (fps || 30)) % frames.length];
+    ctx.fillStyle = "#120d3a"; ctx.fillRect(0, 0, 480, 640);
+    drawPose(ctx, f.map(([x, y]) => ({ x: 0.5 - x * 0.42, y: 0.45 + y * 0.31 })), 480, 640, "#9ff5dc");  // ~200 px per meter
+  };
+  tick();
+}
+
 function playPreview(frames, type) {
+  cancelAnimationFrame(previewRaf);
   const canvas = $("skel"), ctx = canvas.getContext("2d");
   canvas.classList.remove("mirror");
   canvas.width = 480; canvas.height = 640;
@@ -287,4 +307,4 @@ const round = (v) => Math.round(v * 1000) / 1000;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ?debug: load a recording without a camera (testing the forge flow)
-if (new URLSearchParams(location.search).has("debug")) window.IF_forgeDebug = { load(rec) { recorded = rec; $("forge").classList.remove("hidden"); window.IF_forging = true; step("name"); } };
+if (new URLSearchParams(location.search).has("debug")) window.IF_forgeDebug = { load(rec) { recorded = rec; $("forge").classList.remove("hidden"); window.IF_forging = true; step("name"); playCapture(rec.landmarks, rec.fps); } };

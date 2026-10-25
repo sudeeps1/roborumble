@@ -215,7 +215,7 @@ h2 { font-size: 17px; }
 
 /* ---- simple Forge: the camera box never pushes the buttons off screen ---- */
 .forge .stage { width: min(100%, calc(56vh * 3 / 4)); }
-.forge:has(#stepName:not(.hidden)) .stage { display: none; }  /* naming: just the name box and the button */
+.forge[data-step="name"] .stage { --below: 330px; }  /* naming: a small replay of what the phone caught */
 .wild { display: none; }  /* keeps the default blend of your acting and the name */
 
 /* ---- fit every Forge step on screen (jerry/fixes): Safari's toolbars leave ~664 px on most iPhones and ~548 px
