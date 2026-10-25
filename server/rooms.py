@@ -93,8 +93,11 @@ class Hub:
             except Exception:
                 pass
         r.game = ws
-        # tell the (re)connected screen who is already seated
+        # tell the (re)connected screen who is seated right now: a phone that left keeps its seat for when it
+        # comes back, but it isn't in the game until it does
         for s in r.seats.values():
+            if s.ws is None:
+                continue
             await ws.send_text(json.dumps({"type": "join", "player": s.player, "nickname": s.nickname,
                                            **({"character": s.character} if s.character else {})}))
         try:
