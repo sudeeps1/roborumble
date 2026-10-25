@@ -5,7 +5,7 @@
 import { TYPE_COLORS } from "./fx.ts";
 
 export type Side = 0 | 1;
-export interface SpellInfo { name: string; type?: string; kind?: string; power?: number; isNew?: boolean }
+export interface SpellInfo { name: string; type?: string; kind?: string; power?: number; isNew?: boolean; by?: string }
 
 /** In-game names of the spell types and kinds. */
 export const TYPE_NAME: Record<string, string> = { physical: "Might", fire: "Flame", ice: "Frost", lightning: "Storm", shadow: "Shadow" };
@@ -34,6 +34,12 @@ export class Hud {
   private callouts: (HTMLElement | null)[] = [null, null];
   private calloutUntil = [0, 0];
   private channelEls: HTMLElement[] = [];
+  private tags: HTMLElement[] = [];
+  private tagText = ["", ""];
+  private heards: (HTMLElement | null)[] = [null, null];
+  private heardUntil = [0, 0];
+  private colors: string[] = [];
+  private names: { name: string; title: string }[] = [];
   private anchors: { x: number; y: number }[] = [{ x: 0, y: 0 }, { x: 0, y: 0 }];
   private now = 0;
   private bannerUntil = 0;
@@ -64,7 +70,36 @@ export class Hud {
     this.banner = el("banner");
     root.append(top, this.floats, this.banner);
     for (let i = 0; i < 2; i++) { const c = el("channel"); this.floats.append(c); this.channelEls.push(c); }
+    for (let i = 0; i < 2; i++) { const t = el(`nametag p${i + 1}`); t.style.setProperty("--team", fighters[i].color); this.floats.append(t); this.tags.push(t); }
+    this.colors = fighters.map((f) => f.color);
+    this.names = fighters.map((f) => ({ name: f.name, title: f.title }));
     root.hidden = false;
+  }
+
+  /** Who plays each fighter: the floating tag over its head ("PONDUS", "AI"); "" hides it. */
+  nameTag(i: Side, text: string) {
+    if (this.tagText[i] === text) return;
+    this.tagText[i] = text;
+    const t = this.tags[i];
+    t.textContent = text;
+    t.classList.toggle("on", !!text);
+  }
+  /** The plate's big name: the player's nickname (the character smaller), or the character alone. */
+  player(i: Side, nickname: string | null) {
+    const p = this.plates[i].root, n = this.names[i];
+    p.querySelector(".name")!.textContent = nickname ?? n.name;
+    p.querySelector(".title")!.textContent = nickname ? n.name : n.title;
+    p.classList.toggle("seated", !!nickname);
+  }
+  /** What a shout was heard as, and what it became: “fire bowl” → Fireball; a fizzle shows its reason. */
+  heard(i: Side, words: string | null, became: string, kind: "cast" | "new" | "fizzle" = "cast", by = "") {
+    this.heards[i]?.remove();
+    const esc = (t: string) => t.replace(/</g, "&lt;");
+    const e = el(`heard ${kind}`, `${by ? `<span class="by">${esc(by)}</span>` : ""}${words ? `<span class="said">“${esc(words)}”</span><span class="arrow">→</span>` : ""}<span class="became">${esc(became)}</span>`);
+    e.style.setProperty("--team", this.colors[i]);
+    this.floats.append(e);
+    this.heards[i] = e;
+    this.heardUntil[i] = this.now + (kind === "fizzle" ? 2.2 : 2.6);
   }
 
   // ---------------------------------------------------------------- state
@@ -114,6 +149,7 @@ export class Hud {
     const size = len <= 10 ? "s1" : len <= 18 ? "s2" : len <= 28 ? "s3" : "s4";
     const pow = Math.max(1, Math.min(3, Math.round(s.power ?? 1)));
     const e = el(`callout ${size} side${i}`, `
+      ${s.by ? `<div class="by" style="--team:${this.colors[i]}">${s.by.replace(/</g, "&lt;")} casts</div>` : ""}
       ${s.isNew ? `<div class="new">New spell!</div>` : ""}
       <div class="spellname">${s.name.replace(/</g, "&lt;")}</div>
       <div class="meta"><span class="glyph">${svg(type)}</span><span>${TYPE_NAME[type]}</span>${s.kind ? `<span class="dot">◆</span><span>${KIND_NAME[s.kind] ?? s.kind}</span>` : ""}<span class="dot">◆</span><span class="power">${"★".repeat(pow)}<b>${"★".repeat(3 - pow)}</b></span></div>`);
@@ -128,7 +164,7 @@ export class Hud {
   channel(i: Side, words: string | null) {
     const e = this.channelEls[i];
     e.classList.toggle("on", !!words);
-    if (words) e.innerHTML = `<span class="lbl">Channeling</span><span class="words">“${words.replace(/</g, "&lt;")}”</span>`;
+    if (words) e.innerHTML = `<span class="words">“${words.replace(/</g, "&lt;")}”</span><span class="lbl">→ New spell, brewing…</span>`;
   }
 
   /** A damage number at a screen point, with tags (COUNTER!, BLOCKED, CLEAN). */
@@ -168,6 +204,12 @@ export class Hud {
         else pin(c, a);
       }
       pin(this.channelEls[i], a);
+      pin(this.tags[i], a);
+      const h = this.heards[i];
+      if (h) {
+        if (this.now > this.heardUntil[i]) { h.classList.add("out"); this.heards[i] = null; setTimeout(() => h.remove(), 300); }
+        else pin(h, a);
+      }
     }
     if (this.bannerUntil && this.now > this.bannerUntil) this.hideBanner();
   }

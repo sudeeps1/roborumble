@@ -19,8 +19,9 @@ import { type Attack, pushDirection } from "./attacks.ts";
 import { BodyMap, type Zone } from "./body.ts";
 import type { Combat, HitResult, Impact } from "./combat.ts";
 import type { ArenaEvent, Who, WhiffReason } from "./events.ts";
+import { flair } from "./flair.ts";
 import { DEFAULT_ANGLES, NJ } from "./g1.ts";
-import { axisAngleQuat, clamp, dist2, finite3, qmul, tiltOf, yawOf } from "./math.ts";
+import { axisAngleQuat, clamp, dist2, finite3, qconj, qmul, slerp, tiltOf, yawOf } from "./math.ts";
 import type { MotionAsk, MotionClip, MotionName, MotionSource, StrikeWindow } from "./motion.ts";
 import { contextFromReference } from "./planner.ts";
 import { ARM_JOINTS, type Frame, REF_HZ, Reference, type Snap, type Squat, armFastWeights, copyFrame, deepenSquat, mixFrames, poseFrame, resample, sanitizeFrames, snapArms, waistToHips } from "./reference.ts";
@@ -51,6 +52,25 @@ export const TRANSITIONS: Record<Stance, readonly Stance[]> = {
 export const LIMITS: Record<Stance, number> = {
   idle: Infinity, stagger: 1.2, defend: 1.6, move: 6, falling: 3, down: 1.6, rising: 22, ko: Infinity,
 };
+
+/**
+ * How spells (server/Kimodo moves cast with Fighter.cast) are played. kinematic true (default): the
+ * body follows the clip exactly, written into qpos every physics step (with finite-difference
+ * velocities so fists still push through contacts), after a fast glide into range; SONIC takes back
+ * over from the pose the clip ends in. false: the old way (step in with the planner, SONIC tracks
+ * the clip). glide / blend: s of the slide into range (melee) and of the ease into frame 0 otherwise;
+ * assist: s of the upright help after handing back to SONIC; maxTravel: m of the clip's own root travel.
+ */
+export const SPELL_PLAYBACK = { kinematic: true, glide: 0.25, blend: 0.12, assist: 0.6, maxTravel: 0.3 };
+
+/**
+ * all: every stance except the hit reactions (stagger, falling, down, ko) writes its reference
+ * motion straight into qpos (no balance, no motors): physics only takes over when a hit lands.
+ * blend: s to ease from a physical pose back into the reference. rise: s of the magical get-up lift.
+ * downBeat: s on the floor before that lift (TUNE.downBeat otherwise).
+ * Set all = false for the old behaviour (SONIC balances the body in every stance).
+ */
+export const KINEMATIC = { all: true, blend: 0.2, rise: 0.9, downBeat: 0.5 };
 
 export const TUNE = {
   fallTiltRel: 0.8,   // rad more tilted than the motion it follows = lost balance
@@ -110,6 +130,15 @@ export const TUNE = {
     lower: { shPitchL: 0.25, shPitchR: 0.25 } as Partial<Record<keyof typeof J, number>>,
   },
 };
+
+/** Clips a clip's horizontal root travel (relative to frame 0) to `max` m, in place. */
+function clipTravel(frames: Frame[], max: number) {
+  const x0 = frames[0][0], y0 = frames[0][1];
+  for (const f of frames) {
+    const dx = f[0] - x0, dy = f[1] - y0, d = Math.hypot(dx, dy);
+    if (d > max) { f[0] = x0 + (dx * max) / d; f[1] = y0 + (dy * max) / d; }
+  }
+}
 
 // Arms forward and knees soft: what the robot reaches for while it goes down.
 const BRACE = DEFAULT_ANGLES.slice();
@@ -234,6 +263,14 @@ export class Fighter {
   /** Sim time at which frame `ref.now` plays. */
   private nowT = 0;
   private lastErrorT = -Infinity;
+  /** A spell being played kinematically (SPELL_PLAYBACK.kinematic): world frames at REF_HZ, time into them. */
+  private kin: { frames: Frame[]; t: number; spell: Spell; prev: Float64Array | null; feet: number[] } | null = null;
+  private kinAssistUntil = -Infinity;
+  private kinBuf = new Float64Array(36);
+  /** KINEMATIC.all playback of the reference: last written frame, the physical pose it blends out of, time into the tick. */
+  private rk: { prev: Float64Array | null; from: Float64Array | null; blendT: number; on: boolean } = { prev: null, from: null, blendT: 0, on: false };
+  private subT = 0;
+  private feetCache: number[] | null = null;
 
   constructor(name: string, ctx: FighterContext) {
     this.index = ctx.index;
@@ -388,6 +425,7 @@ export class Fighter {
     const spec = checkSpec(spec0);
     const frames = spec ? this.clipFrames(qpos, fps) : null;
     if (!spec || !frames) return false;
+    if (SPELL_PLAYBACK.kinematic) clipTravel(frames, SPELL_PLAYBACK.maxTravel);
     const dur = (frames.length - 1) / REF_HZ;
     const hitT = spec.hitFrame >= 0 ? Math.min(dur, spec.hitFrame / fps) : dur * 0.45;
     // a melee move counts its own lunge (how far its root travels toward the opponent by the hit)
@@ -400,10 +438,162 @@ export class Fighter {
     this.attackSerial++;
     const spell: Spell = { spec, frames, hitT, phase: spec.kind === "melee" ? "approach" : "cast", stepping: false, approachT: 0, waitT: 0, gap: SPELL.meleeGap + lunge };
     this.move = { name: spec.name, endT: this.clock() + LIMITS.move - 0.5, punch: null, spell };
-    if (spell.phase === "cast") this.castNow(this.move, spell);
+    if (SPELL_PLAYBACK.kinematic) this.castKin(this.move, spell);
+    else if (spell.phase === "cast") this.castNow(this.move, spell);
     else this.intent = `stepping in: ${spec.name}`;
     this.emit({ type: "move", who: this.index, name: spec.name });
     return true;
+  }
+
+  /**
+   * Kinematic spell: a fast glide into range (melee) or a short ease into the clip's first frame,
+   * then the clip itself, written straight into this robot's qpos every physics step (substep).
+   */
+  private castKin(mv: Move, sp: Spell) {
+    sp.phase = "cast";
+    this.gen++; this.inflight = null;
+    const cur = this.world.robotQpos(this.robot);
+    let clip = sp.frames.map(copyFrame);
+    ({ frames: clip, hitT: sp.hitT } = flair(clip, sp.spec, sp.hitT, this.robot.lo, this.robot.hi));
+    let pre = SPELL_PLAYBACK.blend;
+    if (sp.spec.kind === "melee") {
+      const [fx, fy] = this.facingOpponent();
+      const shift = this.distanceTo(this.opponent) - sp.gap;
+      if (shift > 0.02) {
+        for (const f of clip) { f[0] += fx * shift; f[1] += fy * shift; }
+        pre = SPELL_PLAYBACK.glide;
+      }
+    }
+    const n = Math.max(2, Math.round(pre * REF_HZ));
+    const glide: Frame[] = [];
+    const q0 = [cur[3], cur[4], cur[5], cur[6]], f0 = clip[0], q1 = [f0[3], f0[4], f0[5], f0[6]];
+    for (let k = 0; k < n; k++) {
+      const a = k / n, e = a * a * (3 - 2 * a);
+      const g = copyFrame(cur);
+      for (let i = 0; i < 36; i++) g[i] = cur[i] + (f0[i] - cur[i]) * e;
+      const qq = slerp(q0, q1, e);
+      g[3] = qq[0]; g[4] = qq[1]; g[5] = qq[2]; g[6] = qq[3];
+      glide.push(g);
+    }
+    clip = glide.concat(clip);
+    const preT = n / REF_HZ;
+    // the reference follows the same frames (lostBalance compares against it)
+    this.ref.replace(clip.map(copyFrame), this.ref.now);
+    this.raw.replace(clip.map(copyFrame), this.raw.now);
+    this.armFF = null;
+    const feet: number[] = [];
+    const m = this.world.model, own = new Set(this.robot.bodyIds);
+    for (let g = 0; g < m.ngeom; g++) if (m.geom_type[g] === 2 && own.has(m.geom_bodyid[g])) feet.push(g);
+    this.kin = { frames: clip, t: 0, spell: sp, prev: null, feet };
+    const now = this.clock();
+    const o = this.world.rootPos(this.opponent.robot);
+    this.combat.cast(this, this.opponent, sp.spec, now + preT + sp.hitT, [o[0], o[1]]);
+    mv.endT = now + (clip.length - 1) / REF_HZ + 0.05;
+    this.intent = `${sp.spec.kind === "defend" ? "raising" : "casting"} ${sp.spec.name}`;
+    const s = sp.spec;
+    this.emit({ type: "cast", who: this.index, name: s.name, kind: s.kind, spellType: s.type, effect: s.effect, power: s.power, hitIn: Math.max(0, preT + sp.hitT), target: [o[0], o[1], o[2]] });
+  }
+
+  /** One physics step of kinematic playback: the clip frame at this time, with matching velocities. */
+  private kinStep(dt: number) {
+    const k = this.kin!;
+    const fr = k.frames, x = Math.min(fr.length - 1, k.t * REF_HZ), i = Math.min(fr.length - 2, Math.floor(x)), a = x - i;
+    mixFrames(fr[i], fr[i + 1], a, this.kinBuf);
+    this.kinWrite(this.kinBuf, dt, k);
+    k.t += dt;
+  }
+
+  /** This robot's foot spheres (for keeping a kinematic body above the floor). */
+  private feetGeoms(): number[] {
+    if (this.feetCache) return this.feetCache;
+    const feet: number[] = [];
+    const m = this.world.model, own = new Set(this.robot.bodyIds);
+    for (let g = 0; g < m.ngeom; g++) if (m.geom_type[g] === 2 && own.has(m.geom_bodyid[g])) feet.push(g);
+    return (this.feetCache = feet);
+  }
+
+  /**
+   * Writes one world frame into this robot's qpos (joints clamped, feet kept above the floor),
+   * with finite-difference velocities from st.prev, and the motors off.
+   */
+  private kinWrite(out: Float64Array, dt: number, st: { prev: Float64Array | null }) {
+    const { lo, hi } = this.robot;
+    for (let j = 0; j < NJ; j++) out[7 + j] = clamp(out[7 + j], lo[j], hi[j]);
+    const w = this.world, d = w.data, r = this.robot;
+    w.setRobotQpos(r, out);
+    w.forward();
+    // never below the floor (Kimodo's feet sink a few cm): lift the whole body by the deepest foot sphere
+    let low = Infinity;
+    for (const g of this.feetGeoms()) low = Math.min(low, d.geom_xpos[g * 3 + 2] - w.model.geom_size[g * 3]);
+    if (Number.isFinite(low) && low < 0) { out[2] -= low; d.qpos[r.qposRoot + 2] = out[2]; }
+    if (st.prev) {
+      const p = st.prev, v = d.qvel;
+      for (let j = 0; j < 3; j++) v[r.qvelRoot + j] = (out[j] - p[j]) / dt;
+      const dq = qmul(qconj([p[3], p[4], p[5], p[6]]), [out[3], out[4], out[5], out[6]]);
+      const sg = dq[0] < 0 ? -1 : 1;
+      for (let j = 0; j < 3; j++) v[r.qvelRoot + 3 + j] = (2 * sg * dq[1 + j]) / dt;
+      for (let j = 0; j < NJ; j++) v[r.qvel[j]] = (out[7 + j] - p[7 + j]) / dt;
+    } else st.prev = new Float64Array(36);
+    st.prev.set(out);
+    for (let j = 0; j < NJ; j++) d.ctrl[r.actuator[j]] = 0;
+  }
+
+  /** KINEMATIC.all: is the body following its reference exactly right now (not a hit reaction)? */
+  private refKinematic(): boolean {
+    if (!KINEMATIC.all || this.kin) return false;
+    const s = this.stance;
+    return s === "idle" || s === "defend" || s === "move" || s === "rising";
+  }
+
+  /** One physics step of KINEMATIC.all: the reference between this tick's frames, eased in from a physical pose. */
+  private refKinStep(dt: number) {
+    const rk = this.rk;
+    if (!rk.on) {
+      // coming out of physics (a stagger, a spell, a spawn): the reference moves to where the body is
+      // now, and the body eases into it
+      rk.on = true;
+      const pose = this.world.robotQpos(this.robot), cur = this.ref.current();
+      if (this.stance !== "rising") this.ref.translate(pose[0] - cur[0], pose[1] - cur[1]);
+      rk.from = copyFrame(pose);
+      rk.blendT = 0;
+      rk.prev = null;
+      const v = this.world.data.qvel, r = this.robot;
+      // keep going with the body's velocity for the first step
+      rk.prev = copyFrame(pose);
+      for (let j = 0; j < 3; j++) rk.prev[j] -= v[r.qvelRoot + j] * dt;
+    }
+    const a = Math.min(1, this.subT * REF_HZ);
+    mixFrames(this.ref.at(this.ref.now - 1), this.ref.current(), a, this.kinBuf);
+    if (rk.from) {
+      rk.blendT += dt;
+      const e0 = Math.min(1, rk.blendT / Math.max(1e-3, KINEMATIC.blend)), e = e0 * e0 * (3 - 2 * e0);
+      if (e < 1) mixFrames(rk.from, copyFrame(this.kinBuf), e, this.kinBuf);
+      else rk.from = null;
+    }
+    this.kinWrite(this.kinBuf, dt, rk);
+  }
+
+  /** Kinematic playback over: SONIC picks up from the pose the body is in now, with a short upright assist. */
+  private endKin() {
+    if (!this.kin) return;
+    this.kin = null;
+    const pose = this.world.robotQpos(this.robot);
+    this.ref.replace([copyFrame(pose)], this.ref.now);
+    this.raw.replace([copyFrame(pose)], this.raw.now);
+    this.ctl.reset();
+    this.ctl.worldHeading();
+    this.kinAssistUntil = this.clock() + SPELL_PLAYBACK.assist;
+  }
+
+  /** Upright help right after a kinematic spell: pelvis held level and up while SONIC finds its feet. */
+  private kinAssist() {
+    const w = this.world, r = this.robot, pelvis = r.bodies.get("pelvis");
+    if (pelvis === undefined) return;
+    const q = w.rootQuat(r), v = w.data.qvel;
+    // the pelvis' z axis in world; a sideways force 0.5 m above the pelvis tips it back toward vertical
+    const zx = 2 * (q[1] * q[3] + q[0] * q[2]), zy = 2 * (q[2] * q[3] - q[0] * q[1]);
+    const k = 1500, c = 120, p = w.rootPos(r);
+    w.applyForce(pelvis, [-k * zx - c * v[r.qvelRoot], -k * zy - c * v[r.qvelRoot + 1], 0], [p[0], p[1], p[2] + 0.5]);
   }
 
   /** Plays the spell's clip now (both fighters' moves started together land on the same tick). */
@@ -643,6 +833,7 @@ export class Fighter {
     this.nowT = this.clock();
   }
   private restartFromPose() {
+    this.kin = null;
     this.gen++; this.inflight = null;
     this.epoch++;
     this.pulses = []; this.hist = []; this.effects = []; this.tuck = 0;
@@ -685,6 +876,7 @@ export class Fighter {
       await this.ctl.tick(this.ref);
       this.feedForward();
     } finally {
+      this.subT = 0;
       this.ref.advance();
       this.raw.advance();
       this.nowT += dt;
@@ -719,6 +911,12 @@ export class Fighter {
       if ((pl.left -= dt) <= 1e-9) this.pulses.splice(i, 1);
     }
     if (this.rise.assist > 0 && this.stance === "rising") this.fairyStrings();
+    if (this.kin && !(this.stance === "move" && this.move?.spell === this.kin.spell)) this.endKin();
+    if (this.kin) { this.kinStep(dt); this.rk.on = false; return; }
+    this.subT += dt;
+    if (this.refKinematic()) { this.refKinStep(dt); return; }
+    this.rk.on = false;
+    if (this.clock() < this.kinAssistUntil && this.standing()) this.kinAssist();
     this.ctl.pd();
   }
 
@@ -762,7 +960,7 @@ export class Fighter {
         if (this.rise.stageT > 0.3) this.toDown();
         break;
       case "down":
-        if (this.stanceT > TUNE.downBeat) this.startRise();
+        if (this.stanceT > (KINEMATIC.all ? KINEMATIC.downBeat : TUNE.downBeat)) this.startRise();
         break;
       case "rising":
         this.rising(h, tilt, dt);
@@ -1038,6 +1236,7 @@ export class Fighter {
       this.castNow(mv, sp);
       return;
     }
+    if (sp && this.kin && this.clock() > mv.endT) { this.endKin(); this.toIdle(); return; }
     if (sp && this.clock() > mv.endT) { this.cutMotion(20); this.toIdle(); return; } // ease back up out of the clip's last pose
     const pu = mv.punch;
     if (pu && pu.phase === "approach") {
@@ -1160,8 +1359,27 @@ export class Fighter {
     this.raw.replace([copyFrame(now)], this.raw.now);
     this.ctl.reset();
     this.ctl.worldHeading();
+    if (KINEMATIC.all) { this.magicRise(copyFrame(now)); return; }
     if (!this.motion) { this.startAssist(); return; }
     this.planStage();
+  }
+
+  /** KINEMATIC.all get-up: the body floats from where it lies up into the guard, a little past it, and settles. */
+  private magicRise(from: Frame) {
+    this.intent = "lifted up by fairy magic";
+    this.rise.cap = 0; this.rise.assist = 0;
+    const [fx, fy] = this.facingOpponent();
+    const yaw = Math.atan2(fy, fx);
+    const to = poseFrame([from[0], from[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES);
+    const n = Math.max(10, Math.round(KINEMATIC.rise * REF_HZ)), frames: Frame[] = [];
+    for (let k = 0; k <= n; k++) {
+      const a = k / n, e = a * a * (3 - 2 * a);
+      const f = mixFrames(from, to, e);
+      f[2] += 0.12 * Math.sin(Math.PI * a); // a float up past standing before the feet touch down
+      frames.push(f);
+    }
+    this.ref.replace(frames, this.ref.now);
+    this.raw.replace(frames.map(copyFrame), this.raw.now);
   }
 
   /** Plans the current get-up stage from the pose the robot actually reached. */
@@ -1182,6 +1400,7 @@ export class Fighter {
 
   private rising(h: number, tilt: number, dt: number) {
     const r = this.rise, lastStage = r.stage === 1;
+    if (KINEMATIC.all) { if (this.ref.remaining === 0) this.risen(); return; }
     if (h > TUNE.upHeight && tilt < 0.3) { this.risen(); return; } // standing is standing, whichever stage got it there
     if (r.assist > 0) r.assist = Math.min(r.cap, r.assist + dt / 1.2);
     if (r.cap >= 1) return; // the full lift: nothing to plan

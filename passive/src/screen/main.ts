@@ -93,6 +93,7 @@ const stage = new Stage(document.body, world);
 await stage.loadCharacters(ROSTER.map((r) => r.url), ROSTER.map((r) => r.hue));
 const set = params.get("arena") === "meadow" ? buildArena(stage) : buildForestArena(stage);
 const fx = new Fx(arena, set.look, (n) => known.get(n));
+fx.camera = stage.camera; // spell ribbons face it
 stage.scene.add(fx.root);
 // ?fx=game: the game's spell effects (src/fx, one look per effect tag) draw the spells and hits instead;
 // this screen's own effects keep the channeling aura and the dust of bodies hitting the floor
@@ -102,6 +103,21 @@ if (gameFx) {
   gameFx.track(() => arena.projectiles(), () => arena.time);
 }
 const director = new Director(stage.camera);
+// a soft glowing ring on the floor under each fighter, in its team colour (who is who, at a glance)
+const ringTex = (() => {
+  const c = Object.assign(document.createElement("canvas"), { width: 256, height: 256 });
+  const g = c.getContext("2d")!, r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  r.addColorStop(0, "rgba(255,255,255,0)"); r.addColorStop(0.5, "rgba(255,255,255,0.08)"); r.addColorStop(0.72, "rgba(255,255,255,0.9)");
+  r.addColorStop(0.8, "rgba(255,255,255,0.55)"); r.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+})();
+const rings = ROSTER.map((r) => {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: ringTex, color: new THREE.Color(r.color), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+  m.renderOrder = 2;
+  stage.scene.add(m);
+  return m;
+});
 const icons = await Promise.all(ROSTER.map((r, i) => portrait(r.url, r.hue, i ? "left" : "right", i ? 0x9cb8ff : 0xffb08a)));
 const hud = new Hud(document.getElementById("hud")!, ROSTER.map((r, i) => ({ name: r.name, title: r.title, color: r.color, portrait: icons[i] })));
 const whiteout = Object.assign(document.createElement("div"), { className: "flashscreen" });
@@ -163,6 +179,7 @@ function toLobby() {
  *  their spells on their phones first, then Enter on this screen starts the duel. */
 let lobbyReady = false;
 function lobbyBanner() {
+  if (performance.now() < joinBannerUntil) return; // the "you are ..." banner first
   const seat = (i: Who) => (seats[i]?.connected ? `${seats[i]!.nickname} joined` : "waiting…");
   if (lobbyReady) hud.show(`${seats[0]?.nickname ?? ROSTER[0].name} vs ${seats[1]?.nickname ?? ROSTER[1].name}`,
     "Forge your spells on your phones, then press Enter to fight", 1e9);
@@ -265,7 +282,7 @@ arena.on((e: ArenaEvent) => {
     case "move": {
       const spec = known.get(e.name);
       if (!spec) return; // punches: the body says it
-      const info: SpellInfo = { name: spec.name, type: spec.type, kind: spec.kind, power: spec.power, isNew: fresh.has(spec.name) };
+      const info: SpellInfo = { name: spec.name, type: spec.type, kind: spec.kind, power: spec.power, isNew: fresh.has(spec.name), by: whoPlays(e.who) };
       fresh.delete(spec.name);
       hud.callout(e.who, info);
       hud.channel(e.who, null);
@@ -301,6 +318,24 @@ function tagFor(f: Fighter): string | null {
     case "defend": return DEFENSE_LABEL[f.defenseKind() ?? ""] ?? null;
     default: return f.poise < 0.3 ? "Dizzy" : null;
   }
+}
+
+/** Who drives a fighter, as its name tag says it: the phone's nickname, "AI", or nothing. */
+function whoPlays(i: Who): string {
+  const s = seats[i];
+  if (s?.connected) return s.nickname;
+  if (aiOn[i]) return "AI";
+  return online ? "" : `P${i + 1}`;
+}
+const SEAT_LOOK = ["coral", "blue"];
+const BODY_WORD: Record<string, string> = { elf: "the elf", knight: "the knight", sorceress: "the sorceress", wizard: "the wizard", frog: "the frog" };
+let joinBannerUntil = 0;
+/** A phone took a seat: tell them which fighter is theirs, big. */
+function seatBanner(i: Who) {
+  const r = ROSTER[i];
+  hud.show(seats[i]!.nickname, `you are ${r.name.toUpperCase()}, ${BODY_WORD[r.id] ?? r.id} in ${SEAT_LOOK[i]}`, 3.6);
+  joinBannerUntil = performance.now() + 3600;
+  if (phase === "lobby") setTimeout(() => { if (phase === "lobby") lobbyBanner(); }, 3650);
 }
 
 // ---------------------------------------------------------------- the game's hooks (phones, round flow)
@@ -340,9 +375,15 @@ Object.assign(globalThis, { __screen: api });
 // oldest library move, never a live wildcard (the move a player just invented and waited for). The screen sends its state 10/s and every event that matters to the phones and narrator.
 interface SeatInfo { nickname: string; character?: string; connected: boolean }
 const seats: [SeatInfo | null, SeatInfo | null] = [null, null];
-const MOVE_WAIT = 2500; // ms
-const QUEUE = 2;
-interface Queued { spec: MoveSpec; qpos: number[][]; fps: number; isNew: boolean; until: number }
+const MOVE_WAIT = 1500; // ms the head move waits for a free fighter (a stagger, getting up)
+const MAX_AGE = 3500;   // ms a shout may wait in all, even behind the fighter's own spell
+interface Queued { spec: MoveSpec; qpos: number[][]; fps: number; isNew: boolean; until: number; born: number }
+const heardWords: string[] = ["", ""];
+const WHY: Record<string, string> = { replaced: "replaced by your newer shout", busy: "fizzled: still busy", "not fighting": "fizzled: not fighting yet", "no usable motion": "fizzled: no motion" };
+function fizzle(i: Who, move: string, why: string) {
+  tell({ kind: "fizzle", player: (i + 1) as 1 | 2, move, why });
+  if (why !== "replaced") hud.heard(i, null, `${move}: ${WHY[why] ?? why}`, "fizzle", whoPlays(i)); // a replaced move: the new shout's line says enough
+}
 const queues: [Queued[], Queued[]] = [[], []];
 const charging: { job: string; until: number }[] = [];
 const TAP: Record<string, Defense> = { jump: "jump", dodge_left: "dodge.left", dodge_right: "dodge.right", block: "block" };
@@ -360,14 +401,17 @@ function onRoom(m: ServerMsg) {
   switch (m.type) {
     case "join": {
       const i = P(m.player);
+      const was = seats[i]?.connected && seats[i]!.nickname === m.nickname;
       seats[i] = { nickname: m.nickname, character: m.character, connected: true };
-      aiOn[i] = false; syncBrains();
-      if (phase === "lobby") lobbyBanner();
+      aiOn[i] = false; syncBrains(); // a seated phone's fighter: no AI at all
+      hud.player(i, m.nickname);
+      if (!was && phase !== "ko" && phase !== "over") seatBanner(i); else if (phase === "lobby") lobbyBanner();
       return;
     }
     case "leave": {
       const i = P(m.player);
       if (seats[i]) seats[i]!.connected = false;
+      hud.player(i, null);
       if (fillAi) { aiOn[i] = true; syncBrains(); }
       if (phase === "lobby") lobbyBanner();
       return;
@@ -377,10 +421,13 @@ function onRoom(m: ServerMsg) {
       if (kind && phase === "fight") arena.fighters[P(m.player)].defend(kind);
       return;
     }
-    case "play": return queueMove(P(m.player), m.move, m.motion, false);
+    case "play":
+      if (m.move) hud.heard(P(m.player), m.transcript || null, m.move.name, "cast", whoPlays(P(m.player)));
+      return queueMove(P(m.player), m.move, m.motion, false);
     case "charge": {
       console.info(`room: player ${m.player} charging "${m.transcript ?? ""}" (job ${m.job})`);
       charging[P(m.player)] = { job: m.job, until: performance.now() + 15000 };
+      heardWords[P(m.player)] = m.transcript || m.guess?.name || "";
       api.channel(m.player, m.transcript || m.guess?.name || "…", m.guess?.type);
       return;
     }
@@ -388,6 +435,7 @@ function onRoom(m: ServerMsg) {
       console.info(`room: player ${m.player} ready: ${m.move?.name} (${m.move?.source}, job ${m.job}, ${m.motion?.qpos?.length ?? 0} frames)`);
       const i = P(m.player);
       if (charging[i]?.job === m.job) { delete charging[i]; api.channel(m.player, null); }
+      if (m.move) hud.heard(i, heardWords[i] || null, m.move.source === "live" ? `${m.move.name} (new!)` : m.move.name, m.move.source === "live" ? "new" : "cast", whoPlays(i));
       return queueMove(i, m.move, m.motion, m.move?.source === "live");
     }
     case "narrate":
@@ -400,14 +448,17 @@ function onRoom(m: ServerMsg) {
 
 function queueMove(i: Who, move: ServerMove, motion: ServerMotion | null, isNew: boolean) {
   const rows = rowsFromMotion(motion);
-  if (!move || !rows) { tell({ kind: "fizzle", player: (i + 1) as 1 | 2, move: move?.name ?? "?", why: "no usable motion" }); return; }
+  if (!move || !rows) { fizzle(i, move?.name ?? "?", "no usable motion"); return; }
   const q = queues[i];
-  if (q.length >= QUEUE) {
-    const k = q.findIndex((m) => !m.isNew);
-    const dropped = q.splice(k >= 0 ? k : 0, 1)[0];
-    tell({ kind: "fizzle", player: (i + 1) as 1 | 2, move: dropped.spec.name, why: "replaced" });
+  // the newest shout wins: waiting library moves are dropped (a live wildcard the player waited for stays, one at most)
+  for (let k = q.length - 1; k >= 0; k--) {
+    if (!q[k].isNew || (isNew && q.filter((m) => m.isNew).length >= 1)) { fizzle(i, q[k].spec.name, "replaced"); q.splice(k, 1); }
   }
-  q.push({ spec: specFromMove(move), ...rows, isNew, until: q.length ? Infinity : performance.now() + MOVE_WAIT });
+  const now = performance.now();
+  q.push({ spec: specFromMove(move), ...rows, isNew, until: q.length ? Infinity : now + MOVE_WAIT, born: now });
+  // cast right away when the fighter is free (no frame of delay)
+  const p = q[0];
+  if (phase === "fight" && cast(i, p.spec, p.qpos, p.fps, p.isNew)) { q.shift(); if (q[0]) q[0].until = now + MOVE_WAIT; }
 }
 
 /** Every frame: moves wait for their fighter; a wildcard that never came back stops glowing. */
@@ -417,8 +468,8 @@ function serveRoom(now: number) {
     if (!p) return;
     const next = () => { q.shift(); if (q[0]) q[0].until = now + MOVE_WAIT; }; // the next move's wait starts now
     if (phase === "fight" && cast(i as Who, p.spec, p.qpos, p.fps, p.isNew)) return next();
-    if (phase === "fight" && arena.fighters[i].stance === "move") p.until = Math.max(p.until, now + MOVE_WAIT); // its own move first
-    if (now > p.until) { next(); tell({ kind: "fizzle", player: (i + 1) as 1 | 2, move: p.spec.name, why: phase === "fight" ? "busy" : "not fighting" }); }
+    if (phase === "fight" && arena.fighters[i].stance === "move") p.until = Math.max(p.until, Math.min(now + MOVE_WAIT, p.born + MAX_AGE)); // its own spell first
+    if (now > p.until) { next(); fizzle(i as Who, p.spec.name, phase === "fight" ? "busy" : "not fighting"); }
   });
   charging.forEach((c, i) => { if (c && now > c.until) { delete charging[i]; api.channel((i + 1) as 1 | 2, null); } });
   if (now - stateAt >= 100) { stateAt = now; publishState(); }
@@ -547,6 +598,10 @@ function frame(now: number) {
   if (shotOn) director.follow(world.rootPos(arena.fighters[shotOn[0]].robot), world.rootPos(arena.fighters[shotOn[1]].robot));
   director.update(real, { pelvis: [pa, pb], down: [downish(a), downish(b)], extras: arena.projectiles().map((p) => p.pos) });
   arena.fighters.forEach((f, i) => {
+    const rp = world.rootPos(f.robot);
+    rings[i].position.set(rp[0], rp[1], 0.02);
+    (rings[i].material as THREE.MeshBasicMaterial).opacity = 0.7 + 0.15 * Math.sin(now / 420 + i * 2);
+    hud.nameTag(i as Who, whoPlays(i as Who));
     hud.hp(i as Who, arena.hp[i], arena.maxHp);
     hud.poise(i as Who, f.poise);
     hud.status(i as Who, tagFor(f));

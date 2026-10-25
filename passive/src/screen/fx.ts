@@ -201,6 +201,26 @@ interface Glow { l: THREE.PointLight; life: number; max: number; peak: number }
 interface Shot { core: THREE.Sprite; halo: THREE.Sprite; trail: THREE.Sprite[]; hist: THREE.Vector3[]; live: boolean; type: string; owner: Who }
 interface Strike { ring: Ring | null; spot: THREE.Vector3; at: number; type: string; landed: boolean; column: [THREE.Sprite, THREE.Sprite] | null; colT: number }
 interface Wall { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; t: number; base: THREE.Vector3 }
+/** A soft glowing ribbon behind one limb while its fighter casts: a ring buffer of recent points,
+ *  one camera-facing strip, brightness by age (additive, so black is invisible). */
+interface Ribbon { mesh: THREE.Mesh; pos: Float32Array; col: Float32Array; pts: Float32Array; stamp: Float32Array; head: number; n: number; on: boolean; who: Who; limb: Limb; type: string }
+const RIB = { n: 24, life: 0.35, width: 0.075, bright: 1.0 };
+
+/** Across the ribbon: bright middle, soft edges, no line. */
+function ribbonTexture() {
+  const cv = document.createElement("canvas");
+  cv.width = 4; cv.height = 64;
+  const g = cv.getContext("2d")!;
+  const grd = g.createLinearGradient(0, 0, 0, 64);
+  grd.addColorStop(0, "rgba(255,255,255,0)");
+  grd.addColorStop(0.5, "rgba(255,255,255,1)");
+  grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 4, 64);
+  return new THREE.CanvasTexture(cv);
+}
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _cam = new THREE.Vector3();
+
 interface HandOrb { core: THREE.Sprite; halo: THREE.Sprite; on: boolean; type: string; limb: Limb; level: number }
 
 export class Fx {
@@ -222,6 +242,9 @@ export class Fx {
   private orbs: HandOrb[] = [];
   private auras: { ring: Ring; level: number; type: string }[] = [];
   private spells: (name: string) => MoveSpec | undefined;
+  private ribbons: Ribbon[] = [];
+  /** Set by the screen: ribbons turn to face it. */
+  camera: THREE.Camera | null = null;
   private t = 0;
   /** Floor slams the camera should feel: strength 0..1. */
   onSlam: (strength: number, at: number[]) => void = () => {};
@@ -279,6 +302,21 @@ export class Fx {
       mesh.castShadow = true;
       this.root.add(mesh);
       this.walls.push({ mesh, mat, t: -1, base: new THREE.Vector3() });
+    }
+    const ribTex = ribbonTexture();
+    for (let w = 0; w < 2; w++) for (const limb of ["l_hand", "r_hand", "l_foot", "r_foot"] as Limb[]) {
+      const n = RIB.n, geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(n * 6), col = new Float32Array(n * 6), uv = new Float32Array(n * 4), idx: number[] = [];
+      for (let j = 0; j < n; j++) { uv.set([j / (n - 1), 0, j / (n - 1), 1], j * 4); if (j < n - 1) { const a = j * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } }
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
+      geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+      geo.setIndex(idx);
+      const mat = new THREE.MeshBasicMaterial({ map: ribTex, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 3;
+      this.root.add(mesh);
+      this.ribbons.push({ mesh, pos, col, pts: new Float32Array(n * 3), stamp: new Float32Array(n), head: 0, n: 0, on: false, who: w as Who, limb, type: "physical" });
     }
     this.watch = arena.fighters.map((f) => (
       [["pelvis", 0.32, 1], ["torso_link", 0.34, 0.9], ["left_knee_link", 0.12, 0.45], ["right_knee_link", 0.12, 0.45], ["left_wrist_yaw_link", 0.09, 0.25], ["right_wrist_yaw_link", 0.09, 0.25]] as const
@@ -344,6 +382,11 @@ export class Fx {
     switch (e.type) {
       case "hit": return this.hit(e);
       case "release": return this.release(e.who, e.kind, e.spellType, e.point);
+      case "cast": {
+        const spec = this.spells(e.name), feet = e.kind === "melee" || /foot/.test(spec?.hitJoint ?? "");
+        for (const r of this.ribbons) if (r.who === e.who && (feet || r.limb.endsWith("hand"))) { r.on = true; r.n = 0; r.type = e.spellType || "physical"; }
+        return;
+      }
       case "move": {
         const spec = this.spells(e.name);
         if (!spec) return;
@@ -353,7 +396,7 @@ export class Fx {
         return;
       }
       case "stance":
-        if (e.from === "move") this.orbs[e.who].on = false;
+        if (e.from === "move") { this.orbs[e.who].on = false; for (const r of this.ribbons) if (r.who === e.who) r.on = false; }
         return;
       case "ko": {
         const p = this.pelvis(e.who);
@@ -376,6 +419,8 @@ export class Fx {
       return;
     }
     const spark = col ? col.spark : this.look.fist;
+    if (col) for (let j = 0; j < 10; j++) // a few slow fairy sparkles that hang where the spell landed
+      this.motes.emit(e.point, [rand(-0.35, 0.35), rand(-0.35, 0.35), rand(0.1, 0.6)], col.spark, rand(0.5, 0.9), -0.05, 1.2, 1);
     this.sparks.burst(e.point, dir, Math.round(18 + 30 * k), spark, 3.2 + 2 * k, 0.7, 0.5);
     this.sparks.burst(e.point, e.dir, Math.round(8 + 12 * k), spark, 2.2, 0.5, 0.4); // spray through
     this.flash(e.point, col ? col.glow : 0xffe8c8, 0.32 + 0.3 * k, 0.16);
@@ -579,7 +624,48 @@ export class Fx {
         this.motes.emit([p[0] + Math.cos(ang) * 0.55, p[1] + Math.sin(ang) * 0.55, 0.05], [0, 0, rand(0.5, 1.2)], col.spark, rand(0.8, 1.4), -0.03, 0.6, 0.8);
       }
     });
+    this.updateRibbons(dt);
     this.watchFloor();
+  }
+
+  private updateRibbons(dt: number) {
+    if (this.camera) this.root.worldToLocal(this.camera.getWorldPosition(_cam)); else _cam.set(0, -6, 1.5);
+    for (const r of this.ribbons) {
+      if (!r.on && r.n === 0) { r.mesh.visible = false; continue; }
+      if (r.on && dt > 0) { // push the limb's point (only while the clock runs: a hit-stop freezes the trail too)
+        const p = this.limbPos(r.who, r.limb);
+        r.head = (r.head + 1) % RIB.n;
+        r.pts[r.head * 3] = p[0]; r.pts[r.head * 3 + 1] = p[1]; r.pts[r.head * 3 + 2] = p[2];
+        r.stamp[r.head] = this.t;
+        r.n = Math.min(RIB.n, r.n + 1);
+      }
+      // newest first; drop points older than the life
+      let live = 0;
+      while (live < r.n && this.t - r.stamp[(r.head - live + RIB.n) % RIB.n] < RIB.life) live++;
+      if (!r.on) r.n = live;
+      if (live < 2) { r.mesh.visible = false; continue; }
+      _c.setHex(typeColors(r.type).glow);
+      const cr = _c.r, cg = _c.g, cb = _c.b;
+      for (let j = 0; j < RIB.n; j++) {
+        const k = Math.min(j, live - 1), i0 = ((r.head - k + RIB.n) % RIB.n) * 3;
+        const k1 = Math.min(k + 1, live - 1), k0 = Math.max(k - 1, 0);
+        const ia = ((r.head - k0 + RIB.n) % RIB.n) * 3, ib = ((r.head - k1 + RIB.n) % RIB.n) * 3;
+        _a.set(r.pts[ib] - r.pts[ia], r.pts[ib + 1] - r.pts[ia + 1], r.pts[ib + 2] - r.pts[ia + 2]); // along the trail
+        _b.set(_cam.x - r.pts[i0], _cam.y - r.pts[i0 + 1], _cam.z - r.pts[i0 + 2]); // toward the camera
+        _a.cross(_b);
+        const len = _a.length();
+        const age = Math.min(1, (this.t - r.stamp[(r.head - k + RIB.n) % RIB.n]) / RIB.life), fade = j < live ? (1 - age) * (1 - age) : 0;
+        const w = len > 1e-6 ? (RIB.width * (0.25 + 0.75 * fade)) / len : 0;
+        const o = j * 6;
+        r.pos[o] = r.pts[i0] + _a.x * w; r.pos[o + 1] = r.pts[i0 + 1] + _a.y * w; r.pos[o + 2] = r.pts[i0 + 2] + _a.z * w;
+        r.pos[o + 3] = r.pts[i0] - _a.x * w; r.pos[o + 4] = r.pts[i0 + 1] - _a.y * w; r.pos[o + 5] = r.pts[i0 + 2] - _a.z * w;
+        const b = RIB.bright * fade;
+        r.col[o] = r.col[o + 3] = cr * b; r.col[o + 1] = r.col[o + 4] = cg * b; r.col[o + 2] = r.col[o + 5] = cb * b;
+      }
+      const g = r.mesh.geometry;
+      g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true;
+      r.mesh.visible = true;
+    }
   }
 
   /** Bodies slamming into the floor: dust, chips, and a call to shake the camera. */
@@ -617,5 +703,6 @@ export class Fx {
     for (const s of this.strikes) { s.landed = true; if (s.column) for (const b of s.column) b.visible = false; s.colT = 0; }
     for (const w of this.walls) { w.t = -1; w.mesh.visible = false; }
     for (const o of this.orbs) { o.on = false; o.level = 0; }
+    for (const r of this.ribbons) { r.on = false; r.n = 0; r.mesh.visible = false; }
   }
 }
