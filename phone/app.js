@@ -278,6 +278,12 @@
   });
 
   // ---------- spellbook ----------
+  // Everyone's starting spells: every game shows them, after your own forged and invented moves.
+  const GENERAL = [
+    ["Fireball", "fire", "projectile", 3], ["Thunder Call", "lightning", "strike", 3], ["Spiral Sphere", "ice", "melee", 3],
+    ["Earth Wall", "physical", "defend", 2], ["Uppercut", "physical", "melee", 2], ["Right Hook", "physical", "melee", 2],
+    ["Roundhouse Kick", "physical", "melee", 2], ["Front Kick", "physical", "melee", 2],
+  ].map(([name, type, kind, power]) => ({ id: `general:${name}`, name, type, kind, power, creator: null }));
   function remember(move) {
     if (!move?.id) return;
     book = [move, ...book.filter((m) => m.id !== move.id)].slice(0, 40);
@@ -298,8 +304,10 @@
     } catch {}
   }
   function renderBook() {
-    $("bookCount").textContent = book.length ? `· ${book.length}` : "";
-    $("book").innerHTML = book.length ? book.map((m) => {
+    const own = book.filter((m) => m.creator === nick);
+    const list = [...own, ...GENERAL.filter((g) => !own.some((m) => m.name.toLowerCase() === g.name.toLowerCase()))];
+    $("bookCount").textContent = list.length ? `· ${list.length}` : "";
+    $("book").innerHTML = list.length ? list.map((m) => {
       const mine = m.creator === nick;
       const who = mine ? (m.source === "forge" ? "✦ Forged by you · 1.5× power" : "✦ Invented by you") : m.creator ? `by ${esc(m.creator)}` : "from the library";
       return `<button class="spell${mine ? " mine" : ""}" data-id="${esc(m.id)}" data-name="${esc(m.name)}" style="--tc:var(--t-${esc(m.type || "physical")})">
@@ -330,14 +338,25 @@
     $("micLabel").textContent = MIC[state][0]; $("micSub").textContent = MIC[state][1];
   }
   const orb = $("mic");
-  orb.addEventListener("pointerdown", (e) => {
+  const asleep = () => micState === "denied" || micState === "blocked" || micState === "asleep" || micState === "none" || !listener;
+  // A tap starts or wakes the mic: iPhones only let a page start audio on a tap, not on a press.
+  orb.onclick = () => {
     if (micState === "denied") return location.reload();  // the browser only asks again after a reload
-    if (micState === "blocked" || micState === "asleep" || micState === "none" || !listener) { micOn = true; return startListening(); }
-    if (!listener.release) return;  // the browser's own recognition listens on its own
+    if (asleep()) { micOn = true; startListening(); }
+  };
+  // Holding the orb records; letting go sends it.
+  orb.addEventListener("pointerdown", (e) => {
+    if (asleep() || !listener.release) return;  // the tap above wakes it; the browser's own recognition listens by itself
     e.preventDefault(); orb.setPointerCapture?.(e.pointerId);
-    micOn = true; listener.resume(); held = true; setMic("hot");
+    micOn = true; held = true; setMic("hot");
   });
-  const letGo = () => { if (!held) return; held = false; setMic("on"); listener?.release?.(); };
+  const letGo = () => {
+    listener?.resume?.();  // letting go is a tap too, so this keeps the phone's audio awake
+    if (!held) return;
+    held = false;
+    if (listener?.release?.() === 0) return setMic("asleep");  // nothing came in: one tap wakes the mic
+    setMic("on");
+  };
   orb.addEventListener("pointerup", letGo);
   orb.addEventListener("pointercancel", letGo);
 
@@ -411,6 +430,7 @@
       release: () => {
         const c = chunks; chunks = []; speaking = false;
         if (c.length * frameMs > 350 && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(c, sr));
+        return c.length;
       },
       resume: () => { paused = false; ctx.resume(); },
       stop: () => { stopped = paused = true; stream?.getTracks().forEach((t) => t.stop()); try { ctx.close().catch(() => {}); } catch {} },
