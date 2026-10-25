@@ -48,6 +48,7 @@ const ROSTER = [params.get("p1") ?? "elf", params.get("p2") ?? "knight"].map((id
   return { id: c, ...CAST[c], ...SIDE[i] };
 });
 export const RULES = { roundSeconds: 60, winsNeeded: 2, introS: 2.6, koHoldS: 3.6, victoryS: 6 };
+if (new URLSearchParams(location.search).has("script")) RULES.winsNeeded = 1; // one round for the pitch video
 
 // ---------------------------------------------------------------- the sim (as the rig boots it)
 ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 4);
@@ -114,6 +115,7 @@ const brains = arena.fighters.map((f, i) => {
   return s;
 });
 const demo = params.has("demo"); // a scripted bout (see flow): every kind of spell, both AIs off
+const scripted = params.has("script"); // the pitch video: Enter in the lobby plays one fixed round (PITCH below)
 // ?room: phones play the fighters (see "the room" below); ?fill=ai lets the AI play an empty seat
 const online = params.has("room");
 const fillAi = params.get("fill") === "ai";
@@ -149,7 +151,7 @@ function startRound() {
   hud.show(`Round ${round}`, round === 3 ? "Final round" : wins[0] + wins[1] === 0 ? `${ROSTER[0].name} vs ${ROSTER[1].name}` : "", 1.7);
   tell({ kind: "round_start", round });
 }
-function newMatch() { wins[0] = wins[1] = 0; round = 1; queues[0].length = queues[1].length = 0; startRound(); }
+function newMatch() { wins[0] = wins[1] = 0; round = 1; queues[0].length = queues[1].length = 0; for (const s of PITCH) s.done = false; startRound(); }
 /** Online, between matches: both fighters stand in the ring until both phones are seated. */
 function toLobby() {
   phase = "lobby"; phaseT = 0; clock = RULES.roundSeconds; winner = null;
@@ -202,6 +204,7 @@ function flow(dtSim: number, dtReal: number) {
     const koAt = Number(params.get("koAt") ?? 0);
     if (koAt && RULES.roundSeconds - clock >= koAt && arena.fighters[1].stance !== "ko") { arena.hp[1] = 0; arena.fighters[1].knockOut(); }
     if (demo) for (const step of DEMO) if (!step.done && RULES.roundSeconds - clock >= step.at) { step.done = true; step.run(); }
+    if (scripted) for (const step of PITCH) if (!step.done && phaseT >= step.at) { step.done = true; step.run(); }  // real seconds after "Fight!"
     if (clock <= 0) { const [a, b] = arena.hp; endRound(a === b ? null : a > b ? 0 : 1, "time"); }
   } else if (phase === "ko") {
     if (phaseT > RULES.koHoldS) {
@@ -350,6 +353,8 @@ if (link) {
 }
 
 function onRoom(m: ServerMsg) {
+  // the pitch video plays its own fixed moves: phones only join and leave
+  if (scripted && (m.type === "tap" || m.type === "play" || m.type === "charge" || m.type === "ready")) return;
   switch (m.type) {
     case "join": {
       const i = P(m.player);
@@ -491,6 +496,22 @@ const DEMO: { at: number; done: boolean; run: () => void }[] = ([
   [14.4, () => castNamed(0, "Earth Wall")],
   [14.9, () => castNamed(1, "Fireball")],
   [18, () => arena.fighters[0].throwPunch("punch.rightHook")],
+] as [number, () => void][]).map(([at, run]) => ({ at, run, done: false }));
+
+// ?script: the pitch video's round, seconds after "Fight!" (real time). Sylvara (seat 1) wins by K.O.
+const chant = (i: Who, words: string | null, type = "lightning") => api.channel((i + 1) as 1 | 2, words, type);
+const PITCH: { at: number; done: boolean; run: () => void }[] = ([
+  [1.0, () => castNamed(0, "Fireball")],                                   // P1 shouts "fireball"
+  [3.8, () => castNamed(1, "Thunder Call")],                               // P2 shouts "thunder call"
+  [6.6, () => castNamed(0, "Spiral Sphere")],                              // P1's forged move: "rasengan"
+  [9.4, () => castNamed(1, "Earth Wall")],                                 // P2's forged move: "earth wall"
+  [10.2, () => castNamed(0, "Fireball")],                                  // P1 "fireball" into the wall
+  [12.8, () => chant(1, "summon the crab king")],                           // P2 invents a spell live
+  [14.6, () => { chant(1, null); const b = spell("Thunder Call"); if (b) cast(1, { ...b.spec, name: "The Thunderous Crab King of the Sunken Deep", power: 3 }, b.qpos, b.fps, true); }],
+  [17.6, () => arena.fighters[0].throwPunch("punch.rightHook")],          // P1 taps in close: a right hook
+  [19.0, () => castNamed(0, "Thunder Call")],                              // P1 "thunder call"
+  [21.6, () => castNamed(0, "Spiral Sphere")],                             // P1 finisher: "rasengan"
+  [22.6, () => { if (arena.fighters[1].stance !== "ko") { arena.hp[1] = 0; arena.fighters[1].knockOut(); } }],
 ] as [number, () => void][]).map(([at, run]) => ({ at, run, done: false }));
 
 // ---------------------------------------------------------------- loop
