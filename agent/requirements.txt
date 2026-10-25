@@ -1,0 +1,7 @@
+# Library Builder (run.py). HTTP to the game server uses only the standard library.
+anthropic>=2.3,<3
+# specs.py: the live wildcard rules that server/wildcard.py imports.
+pydantic>=2
+# all-MiniLM-L6-v2 for motion reuse, the same model as the server's shout matcher. It pulls in
+# PyTorch; if it is missing, motion reuse falls back to difflib (AGENT_SIMILARITY=difflib forces that).
+sentence-transformers>=3

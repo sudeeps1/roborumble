@@ -1,0 +1,26 @@
+{
+  "name": "infinite-fighter-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/fetch-g1.mjs",
+    "dev": "vite",
+    "premock": "node scripts/fetch-g1.mjs",
+    "mock": "vite --mode mock",
+    "prebuild": "node scripts/fetch-g1.mjs",
+    "build": "tsc && vite build",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

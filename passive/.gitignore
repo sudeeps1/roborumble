@@ -1,0 +1,7 @@
+node_modules/
+dist/
+public/g1/
+public/sonic/
+public/human/
+models/
+.claude/

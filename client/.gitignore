@@ -1,0 +1,5 @@
+node_modules
+dist
+.env.local
+# fetched by scripts/fetch-g1.mjs (pinned Menagerie commit)
+public/g1/

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0d1024">
+  <title>Infinite Fighter · Spellbook</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=8">
+</head>
+<body>
+  <div class="sky"></div>
+
+  <!-- Join -->
+  <section id="join" class="screen">
+    <div class="sigil">✦</div>
+    <h1>Infinite Fighter</h1>
+    <p class="tag">Every move you invent teaches a real robot how to move.</p>
+    <div class="card">
+      <label for="nick">Your name, brave one</label>
+      <input id="nick" maxlength="16" autocomplete="off" placeholder="e.g. Pip">
+      <label for="room">Room code</label>
+      <input id="room" maxlength="8" autocomplete="off" placeholder="ABCD">
+      <button id="joinBtn" class="gold">Enter the fairy ring</button>
+      <p class="hint">Your mic stays on while you play: just shout your spells.</p>
+    </div>
+  </section>
+
+  <!-- Play -->
+  <section id="play" class="screen hidden">
+    <header class="top">
+      <div>
+        <div class="who" id="who">Pip</div>
+        <div class="seat"><span class="dot" id="dot"></span><span id="seat">Joining…</span></div>
+      </div>
+      <button class="roomtag" id="leave" title="Leave this room">Room <b id="roomCode">ABCD</b> <span class="leave">✕</span></button>
+    </header>
+
+    <div class="duel hidden" id="duel">
+      <div class="duel-top"><span id="round">Round 1</span><span id="wins"></span><span class="timer" id="timer">60</span></div>
+      <div class="bar"><span>Life <b id="hpN"></b></span><i id="hp"></i></div>
+      <div class="bar energy"><span>Energy <b id="enN"></b></span><i id="en"></i></div>
+    </div>
+    <div class="waiting" id="waiting">Waiting for the duel to begin on the big screen… you can still cast and forge.</div>
+
+    <button id="mic" class="mic on" aria-pressed="true">
+      <span class="orb"><span class="ring"></span><span class="ring r2"></span>🎙</span>
+      <span class="mic-text"><span class="mic-label" id="micLabel">Starting the mic…</span>
+        <span class="mic-sub" id="micSub">Tap to turn the mic off</span></span>
+    </button>
+
+    <form class="typecast" id="typeForm" autocomplete="off">
+      <input id="typed" maxlength="60" placeholder="…or type a spell" enterkeyhint="send">
+      <button class="gold small">Cast</button>
+    </form>
+
+    <div class="heard" id="heard"><em>Say “uppercut”, “fireball”… or invent something new.</em></div>
+
+    <div class="defend">
+      <button data-tap="dodge_left"><b>⟵</b>Dodge</button>
+      <button data-tap="jump"><b>⤒</b>Jump</button>
+      <button data-tap="block"><b>⛨</b>Block</button>
+      <button data-tap="dodge_right"><b>⟶</b>Dodge</button>
+    </div>
+
+    <button id="forgeOpen" class="forge-open">✦ Forge a new spell <small>act it out on camera</small></button>
+
+    <h2>Your Spellbook <small id="bookCount"></small></h2>
+    <p class="sub">Moves you invented or cast. Tap one to cast it.</p>
+    <div class="book" id="book"></div>
+  </section>
+
+  <!-- Forge: act out a move, Kimodo makes it legendary -->
+  <section id="forge" class="forge hidden">
+    <header class="ftop"><h2>The Forge</h2><button id="forgeClose" class="x" aria-label="Close">✕</button></header>
+    <div class="stage">
+      <video id="cam" playsinline muted autoplay></video>
+      <canvas id="skel"></canvas>
+      <div class="count" id="count"></div>
+    </div>
+    <p class="fhint" id="fhint">Prop your phone up and step back until your whole body glows.</p>
+
+    <div id="stepRecord">
+      <button id="recBtn" class="gold" disabled>Record my move (4 s)</button>
+    </div>
+
+    <div id="stepName" class="hidden">
+      <label class="flabel" for="spellName">Name your spell</label>
+      <input id="spellName" maxlength="40" autocomplete="off" placeholder="Fireball, Gorilla Smash…">
+      <div class="wild">
+        <span>Follow my acting</span>
+        <input id="wild" type="range" min="0" max="1" step="0.05" value="0.6">
+        <span>Go wild</span>
+      </div>
+      <button id="forgeBtn" class="gold">Forge it ✦</button>
+      <button id="redoRec" class="ghost">Record again</button>
+    </div>
+
+    <div id="stepResult" class="hidden">
+      <div class="fcard" id="fcard"></div>
+      <button id="keepBtn" class="gold">Keep it in my spellbook</button>
+      <button id="redoAll" class="ghost">Redo</button>
+    </div>
+  </section>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js?v=9"></script>
+  <script type="module" src="forge.js?v=8"></script>
+</body>
+</html>
