@@ -88,6 +88,7 @@ class BaseBody:
             self.mouth_w = float(np.abs(cm[:, 1]).max()) * 0.95
         else:
             self.mouth_c, self.mouth_w = V(0.086, 0, 1.177), 0.020
+        self.arm_caps = None      # {side: (shoulder, elbow, r0, r1)} set by the outfit (armhole capsules)
         self.body = Grid("body", self.verts, self.tris, log)
         self.head = Grid("head", self.verts, self.tris, log)
 
@@ -131,6 +132,18 @@ class BaseBody:
             better = dn < best
             best[better] = dn[better]
             lab[better] = part
+        if self.arm_caps is not None:
+            # upper arms: exactly the capsules that cut the armholes (elf_outfit.body), so the torso/arm border
+            # (and the skinning seam) sits in the armpit crease and the tunic edge stays on the torso
+            for s, part in ((1, P_["l_arm"]), (-1, P_["r_arm"])):
+                sh, el, r0, r1 = self.arm_caps[s]
+                ab = el - sh
+                t = np.clip(((P - sh) @ ab) / (ab @ ab), 0, 1)
+                d = np.linalg.norm(P - (sh + t[:, None] * ab), axis=1) - (r0 + (r1 - r0) * t)
+                upper = (P[:, 2] > 0.86) & (np.isin(lab, (P_["spine"], part)))
+                lab[upper & (d < 0) & (lab == P_["spine"])] = part
+                medial = s * P[:, 1] < s * sh[1]          # chest/back side of the shoulder line (not the deltoid)
+                lab[upper & (d >= 0) & (lab == part) & medial & (((P - el) @ ab) < 0)] = P_["spine"]
         return lab
 
     def node(self, mat, P_):

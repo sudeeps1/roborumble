@@ -19,7 +19,7 @@ from sdf import vnoise
 from elf_hair import _ss, _smooth_table, _shingles, _clumps
 import elf_hair
 
-TEX_W, TEX_H, NCOL = 1024, 1024, 8
+TEX_W, TEX_H, NCOL = 1024, 512, 8      # strands run along v: half the rows lose nothing visible
 DENSE, DENSE_B, CLUMP, CLUMP_B, CAP, CAP_B, WISP, SPLAY = range(NCOL)
 TINT = (204, 210, 226)          # sRGB strand tint (vertex color); the texture adds per-strand variation
 CUR_TINT = [TINT]                # per character: build() sets it from elf.hair_tint
@@ -29,6 +29,13 @@ SEED = 23
 PONY_TWIST = -0.4712             # rad per unit s: the ponytail grooves' twist (elf_hair.ponytail groove)
 LOCK_DARK = 0.38                 # how much darker cards get down in the underlayer's lock grooves
 AO_FLOOR = 0.42                  # vertex color floor in fully occluded spots (under bangs, behind ears)
+# How busy the hair is: loose clumps on the cap and ponytail, flyaways and ponytail strays. Kept low for a
+# smooth, sleek read (the layered base coverage is unchanged).
+N_CAP_CLUMPS = 130
+N_PONY_CLUMPS = 28
+N_FLYAWAYS = 0
+N_BABY_HAIRS = 0
+N_PONY_STRAYS = 6
 
 
 def _lin(c):
@@ -438,7 +445,7 @@ class _Cap:
         paths = np.stack(paths, 1)
         return [paths[i, :ln[i]] for i in range(len(P))]
 
-    def card(self, path, off, w0, rng, wob=0.0015, rows_per_m=85.0, wmin=0.0024, trim_margin=0.003):
+    def card(self, path, off, w0, rng, wob=0.0015, rows_per_m=62.0, wmin=0.0024, trim_margin=0.003):
         """Card grid (P, N) along a traced path; None if too short. Width shrinks toward the tie."""
         # drop the part of the path inside the ear / circlet-setting keep-outs (cards start after them)
         ok = self.keepout(path, w0 * 0.5 + trim_margin, off) > 0
@@ -475,9 +482,9 @@ class _Cap:
 def cap_cards(elf, cards, rng, log):
     cap = _Cap(elf)
     layers = [  # off, count, inset (deg), width (m), atlas columns, v range, shade
-        dict(off=0.0006, n=170, inset=(-0.7, 0.4), w=(0.009, 0.013), cols=(DENSE, DENSE_B), v=(0.0, 0.84), shade=0.50),
-        dict(off=0.0013, n=160, inset=(-0.3, 1.2), w=(0.007, 0.011), cols=(CAP, CAP), v=(0.0, 1.0), shade=0.66),
-        dict(off=0.0020, n=130, inset=(0.8, 4.0), w=(0.006, 0.010), cols=(CAP, CAP_B), v=(0.0, 1.0), shade=0.80),
+        dict(off=0.0006, n=160, inset=(-0.7, 0.4), w=(0.009, 0.013), cols=(DENSE, DENSE_B), v=(0.0, 0.84), shade=0.50),
+        dict(off=0.0013, n=130, inset=(-0.3, 1.2), w=(0.007, 0.011), cols=(CAP, CAP), v=(0.0, 1.0), shade=0.66),
+        dict(off=0.0020, n=100, inset=(0.8, 4.0), w=(0.006, 0.010), cols=(CAP, CAP_B), v=(0.0, 1.0), shade=0.80),
     ]
     for li, ly in enumerate(layers):
         seeds, _ = cap.hairline_seeds(ly["n"], rng.uniform(*ly["inset"], ly["n"]), rng)
@@ -491,7 +498,7 @@ def cap_cards(elf, cards, rng, log):
             shade = shade[:, None] * (1 - LOCK_DARK * cap.last_lock ** 1.4)
             cards.add(P, N, ly["cols"][rng.integers(2)], ly["v"], shade)
     # loose clumps on top: start anywhere on the cap and run to the tie
-    n_top = 420
+    n_top = N_CAP_CLUMPS
     # mostly on the lock crests
     seeds, _ = cap.area_seeds(n_top, rng, el_lo=3.0, pref=lambda P: (1 - cap.lock(P)) ** 2.5)
     n_top = len(seeds)
@@ -685,7 +692,7 @@ class _Pony:
             phi = (j + 0.5 - 0.45 * ss - 0.2 * np.sin(phi * 2 + 1)) * 2 * np.pi / 6
         return phi
 
-    def card(self, phi0, dphi, off, s0, s1, rows_per_m=85.0, tip=True, crest=None):
+    def card(self, phi0, dphi, off, s0, s1, rows_per_m=66.0, tip=True, crest=None):
         R = int(np.clip(round((s1 - s0) * self.L * rows_per_m), 4, 44)) + 1
         s = np.linspace(s0, s1, R)
         phi = phi0 + PONY_TWIST * s
@@ -733,7 +740,7 @@ def pony_cards(elf, cards, rng, log):
             v0 = 0.0 if s0 < 0.01 else 0.04
             cards.add(P, N, ly["cols"][j % len(ly["cols"])], (v0, 1.0), shade, wmin=0.003)
     # short loose clumps over the top
-    for j in range(90):
+    for j in range(N_PONY_CLUMPS):
         s0 = rng.uniform(0.04, 0.62)
         s1 = min(s0 + rng.uniform(0.14, 0.38), 1.08)
         P, N, s = pony.card(rng.uniform(-0.3, 0.3), rng.uniform(0.18, 0.32), rng.uniform(0.0027, 0.0032), s0, s1,
@@ -750,9 +757,8 @@ def pony_cards(elf, cards, rng, log):
 
 def wisp_cards(elf, cap, pony, head_cards, pony_cards_, rng, log):
     # crown / hairline flyaways: short strands that leave the cap and arc back down
-    n = 46
-    seeds, _ = cap.area_seeds(n, rng, el_lo=2.0)
-    paths = cap.trace(seeds, 0.0025, step=0.004, nmax=22)
+    n = N_FLYAWAYS
+    paths = cap.trace(cap.area_seeds(n, rng, el_lo=2.0)[0], 0.0025, step=0.004, nmax=22) if n else []
     for path in paths:
         if len(path) < 6:
             continue
@@ -766,9 +772,12 @@ def wisp_cards(elf, cap, pony, head_cards, pony_cards_, rng, log):
         P = P + N * lift[:, None, None]
         head_cards.add(P, N, (WISP, SPLAY)[rng.integers(2)], (0.05, 0.95), rng.uniform(0.95, 1.08))
     # baby hairs along the front/temple hairline
-    seeds, az = cap.hairline_seeds(40, rng.uniform(-0.6, 0.6, 40), rng, az_range=(-100, 100))
-    seeds = seeds[np.abs(az) > 14]
-    paths = cap.trace(seeds, 0.0010, step=0.003, nmax=8)
+    if N_BABY_HAIRS:
+        seeds, az = cap.hairline_seeds(N_BABY_HAIRS, rng.uniform(-0.6, 0.6, N_BABY_HAIRS), rng, az_range=(-100, 100))
+        seeds = seeds[np.abs(az) > 14]
+        paths = cap.trace(seeds, 0.0010, step=0.003, nmax=8)
+    else:
+        paths = []
     for path in paths:
         c = cap.card(path, 0.0010, rng.uniform(0.003, 0.005), rng, wob=0.0006, rows_per_m=200, wmin=0.002)
         if c is None:
@@ -777,7 +786,7 @@ def wisp_cards(elf, cap, pony, head_cards, pony_cards_, rng, log):
         P = P + N * (rng.uniform(0.0004, 0.0015) * s ** 2)[:, None, None]
         head_cards.add(P, N, WISP, (0.0, 0.8), rng.uniform(0.92, 1.05))
     # ponytail strays: strands that peel off the ponytail surface
-    for j in range(26):
+    for j in range(N_PONY_STRAYS):
         phi0 = rng.uniform(0, 2 * np.pi)
         s0 = rng.uniform(0.08, 0.75)
         s1 = min(s0 + rng.uniform(0.08, 0.2), 1.05)

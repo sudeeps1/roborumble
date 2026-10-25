@@ -76,12 +76,13 @@ everything = sdf.union(*[n for n in (body_node, head_all, pony_node, pauldron) i
                        *[f[0] for f in flaps.values()])
 
 pieces = {}  # name -> dict(node, h, clip, target faces, kind)
-pieces["Body"] = dict(node=body_node, h=0.0021 * q, clip=("below", 1.175), faces=30000)
+pieces["Body"] = dict(node=body_node, h=0.0021 * q, clip=("below", 1.175), faces=27000)
 pieces["Head"] = dict(node=head_all, h=0.00072 * q, clip=("above", getattr(elf, "head_clip", 1.015)), faces=20000,
                       lo=elf.H(-0.16, -0.16, -0.23), hi=elf.H(0.14, 0.16, 0.17))
-for name, node, pc in (("Ponytail", pony_node, dict(h=0.0011 * q, faces=6000)),
-                       ("Pauldron", pauldron, dict(h=0.0008 * q, faces=5000)),
-                       ("Runes", runes, dict(h=0.00045 * q, faces=8000))):
+pieces["Head"]["faces"] = 18000
+for name, node, pc in (("Ponytail", pony_node, dict(h=0.0011 * q, faces=4800)),
+                       ("Pauldron", pauldron, dict(h=0.0008 * q, faces=3600)),
+                       ("Runes", runes, dict(h=0.00045 * q, faces=3500))):
     if node is not None:
         pieces[name] = dict(node=node, **pc)
 # a character can add more rigid or spring pieces: {name: dict(node=, h=, faces=, bone= or chain=)}
@@ -223,12 +224,12 @@ def iris_image():
     fib = np.interp(U * 180, np.arange(181), rng.random(181))
     fib2 = np.interp(U * 61, np.arange(62), rng.random(62))
     col = np.zeros((h, w, 3))
-    sclera = np.array([0.78, 0.74, 0.72]) - 0.16 * np.clip((th - 40) / 90, 0, 1)[..., None]
+    sclera = np.array([0.60, 0.55, 0.53]) - 0.14 * np.clip((th - 40) / 90, 0, 1)[..., None]
     col[:] = sclera
     t = np.clip((th - 10.0) / (29.0 - 10.0), 0, 1)[..., None]
-    inner, mid, outer = np.array([0.55, 0.62, 0.30]), np.array([0.14, 0.42, 0.24]), np.array([0.03, 0.14, 0.09])
+    inner, mid, outer = np.array([0.30, 0.36, 0.20]), np.array([0.09, 0.24, 0.15]), np.array([0.03, 0.09, 0.06])
     iris = np.where(t < 0.35, inner + (mid - inner) * (t / 0.35), mid + (outer - mid) * ((t - 0.35) / 0.65))
-    iris = iris * (0.78 + 0.32 * fib[..., None] * (0.6 + 0.4 * fib2[..., None]))
+    iris = iris * (0.90 + 0.12 * fib[..., None] * (0.6 + 0.4 * fib2[..., None]))
     iris_mask = (th < 29.0)[..., None]
     col = np.where(iris_mask, iris, col)
     limbal = np.clip(1 - np.abs(th - 28.0) / 2.5, 0, 1)[..., None]
@@ -313,8 +314,8 @@ def ambient_occlusion(P, N):
 def blush(P):
     """Warm skin tint on cheeks, nose, ear tips, knuckles, elbows, knees."""
     t = np.zeros(len(P))
-    spots = [(elf.H(0.058, 0.044, -0.020), 0.022, 0.55), (elf.H(0.058, -0.044, -0.020), 0.022, 0.55),
-             (elf.H(0.093, 0, -0.020), 0.011, 0.45)]
+    spots = [(elf.H(0.056, 0.040, -0.024), 0.026, 0.40), (elf.H(0.056, -0.040, -0.024), 0.026, 0.40),
+             (elf.H(0.090, 0, -0.016), 0.010, 0.22)]
     for s in (1, -1):
         spots.append((elf.H(-0.012, s * 0.064, -0.004) + 0.07 * np.array([-0.42, s * 0.66, 0.62]), 0.03, 0.6))
         Wm = W[elf.side(s, "wrist_yaw_link")]
@@ -353,27 +354,46 @@ def paint(ob, kind):
     vm = loops_v
     fm = fmat[loop_face]
     col = np.ones((len(me.loops), 3))
+    if kind == "eye":
+        # subdued eyes: the upper lid's shadow falls over the top of the eyeball, the corners sink into shade
+        E = P.mean(0)
+        r = np.linalg.norm(P - E, axis=1).mean()
+        g = np.asarray(elf.eye_frame(1 if E[1] > 0 else -1)[:, 0])
+        t = (P[:, 2] - E[2]) / r
+        side = np.abs((P - E) @ np.cross((0, 0, 1), g)) / r
+        sh = (0.30 + 0.70 * np.clip((0.62 - t) / 0.95, 0, 1) ** 1.3) * (1 - 0.35 * np.clip((side - 0.35) / 0.5, 0, 1))
+        col = np.repeat(sh[vm, None], 3, 1) * np.array([0.92, 0.88, 0.86])
     if kind != "eye":
         col = BASE[np.clip(fm, 0, None)].copy()
         v = vm
-        var = 1 + 0.07 * noise[v] + 0.03 * fine[v]
+        # calm, low-frequency color variation only (no fine speckle)
+        var = 1 + 0.03 * noise[v]
+        for wt, on, to in (elf.tint_weights(P) if hasattr(elf, "tint_weights") else []):
+            sel = fm == M[on]
+            col[sel] = col[sel] * (1 - wt[v][sel, None]) + BASE[M[to]] * wt[v][sel, None]
         is_skin = fm == M["skin"]
-        warm = srgb2lin((226, 150, 140))
-        col[is_skin] = col[is_skin] * (1 - bl[v][is_skin, None] * 0.35) + warm * bl[v][is_skin, None] * 0.35
+        warm = srgb2lin((222, 156, 144))
+        col[is_skin] = col[is_skin] * (1 - bl[v][is_skin, None] * 0.30) + warm * bl[v][is_skin, None] * 0.30
         if hasattr(elf, "brow_weight") and elf.eyes:
             bw = elf.brow_weight(P)[v] * is_skin * (P[v, 2] > 1.15)
-            col = col * (1 - bw[:, None] * 0.95) + BASE[M["brow"]] * bw[:, None] * 0.95
+            k = getattr(elf, "brow_strength", 0.95)
+            col = col * (1 - bw[:, None] * k) + BASE[M["brow"]] * bw[:, None] * k
         if hasattr(elf, "lip_weight"):
             lw = elf.lip_weight(P)[v] * is_skin * (P[v, 2] > 1.1)
-            col = col * (1 - lw[:, None] * 0.9) + BASE[M["lips"]] * lw[:, None] * 0.9
+            k = getattr(elf, "lip_strength", 0.9)
+            col = col * (1 - lw[:, None] * k) + BASE[M["lips"]] * lw[:, None] * k
+        if hasattr(elf, "face_shade"):
+            # painted shadow shapes (eye sockets, under the cheekbones): the face reads by shade, not by features
+            fs = elf.face_shade(P)[v] * np.isin(fm, [M["skin"], M["lips"]])
+            col = col * (1 - fs[:, None] * np.array([0.55, 0.72, 0.76]))   # warm rose-brown shade
         hair = fm == M["hair"]
-        var[hair] = 1 + 0.10 * noise[v][hair] + 0.05 * fine[v][hair]
+        var[hair] = 1 + 0.05 * noise[v][hair]
         cloth = np.isin(fm, [M["tunic"], M["legging"], M["wrap"], M["leather"], M["leather_dark"], M["boot"],
                              M["leather_green"]])
-        var[cloth] = 1 + 0.12 * noise[v][cloth] + 0.08 * fine[v][cloth]
+        var[cloth] = 1 + 0.05 * noise[v][cloth]
         col = col * var[:, None]
         occl = ao[v] ** 1.2
-        floor_ = np.where(np.isin(fm, [M["skin"], M["lips"]]), 0.55, 0.35)   # skin scatters light into its creases
+        floor_ = np.where(np.isin(fm, [M["skin"], M["lips"]]), 0.42, 0.35)   # skin scatters light into its creases
         col = col * (floor_ + (1 - floor_) * occl)[:, None]
         glow = np.isin(fm, [M["gem"], M["rune"]])
         col[glow] = BASE[fm[glow]]
@@ -391,7 +411,7 @@ SHADE = {  # roughness, metallic, extra
     "skin": (0.55, 0.0, {}), "lips": (0.4, 0.0, {}), "hair": (0.38, 0.0, {"sheen": 0.15}),
     "brow": (0.5, 0.0, {}), "lash": (0.6, 0.0, {}), "tunic": (0.85, 0.0, {"sheen": 0.08}),
     "leather": (0.62, 0.0, {"coat": 0.08}), "leather_dark": (0.6, 0.0, {"coat": 0.1}),
-    "gold": (0.28, 1.0, {}), "gem": (0.08, 0.0, {"emit": 3.0, "coat": 1.0}), "rune": (0.4, 0.0, {"emit": 2.0}),
+    "gold": (0.36, 1.0, {}), "gem": (0.08, 0.0, {"emit": 3.0, "coat": 1.0}), "rune": (0.4, 0.0, {"emit": 2.0}),
     "wrap": (0.9, 0.0, {"sheen": 0.15}), "legging": (0.75, 0.0, {}), "boot": (0.62, 0.0, {"coat": 0.08}),
     "mouth": (0.6, 0.0, {}), "leather_green": (0.58, 0.0, {"coat": 0.1}), "eye": (0.12, 0.0, {"coat": 1.0}),
 }
@@ -415,7 +435,16 @@ def material(name):
     if name == "eye":
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = bpy.data.images.get("elf_iris") or iris_image()
-        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        ca = nt.nodes.new("ShaderNodeVertexColor")
+        ca.layer_name = "Col"
+        mix = nt.nodes.new("ShaderNodeMix")
+        mix.data_type = "RGBA"
+        mix.blend_type = "MULTIPLY"
+        mix.inputs["Factor"].default_value = 1.0
+        sock = lambda socks, ident: next(x for x in socks if x.identifier == ident)
+        nt.links.new(ca.outputs["Color"], sock(mix.inputs, "A_Color"))
+        nt.links.new(tex.outputs["Color"], sock(mix.inputs, "B_Color"))
+        nt.links.new(sock(mix.outputs, "Result_Color"), bsdf.inputs["Base Color"])
     else:
         ca = nt.nodes.new("ShaderNodeVertexColor")
         ca.layer_name = "Col"
@@ -459,6 +488,141 @@ for name, ob in objs.items():
         at = me.attributes.new("_FLOW", "FLOAT_VECTOR", "POINT")
         at.data.foreach_set("vector", np.asarray(fl, np.float32).ravel())
 
+# body part labels at the sculpted positions (the slim pass moves vertices off the SDF surface)
+LABELS = {}
+if "Body" in objs:
+    LABELS["Body"] = pieces["Body"]["node"].tags(mesh_arrays(objs["Body"])[0].astype(sdf.F), 0.01)[2]
+
+# ---------------------------------------------------------------- slim pass
+# A slimmer build on the same skeleton: every part is narrowed about the G1's own axes (torso about the
+# centerline, each limb radially about its shoulder-elbow-wrist / hip-knee-ankle polyline, boot feet sideways
+# only so soles stay flat), the displacement smoothed over the body mesh so part borders blend, and every
+# separate piece moved with the body under it. Joint pivots never move.
+SLIM = getattr(elf, "slim", None)
+
+
+def _polyline_closest(P, pts):
+    """Closest point on a polyline and its arc-length parameter."""
+    best = np.full(len(P), np.inf)
+    Q = np.zeros_like(P)
+    T = np.zeros(len(P))
+    acc = 0.0
+    for a, b in zip(pts[:-1], pts[1:]):
+        ab = b - a
+        l2 = ab @ ab
+        t = np.clip(((P - a) @ ab) / l2, 0, 1)
+        q = a + t[:, None] * ab
+        d = ((P - q) ** 2).sum(1)
+        bt = d < best
+        best[bt], Q[bt], T[bt] = d[bt], q[bt], acc + t[bt] * np.sqrt(l2)
+        acc += np.sqrt(l2)
+    return Q, T
+
+
+def _sst(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def slim_axes(s):
+    p = lambda n: W[n][:3, 3]
+    side = "left_" if s > 0 else "right_"
+    wr = p(side + "wrist_yaw_link")
+    arm = [p(side + "shoulder_roll_link") + np.array([0.0, s * 0.004, -0.004]), p(side + "elbow_link"), wr,
+           wr + W[side + "wrist_yaw_link"][:3, :3] @ np.array([0.09, 0, 0])]
+    leg = [np.array([0.0, s * 0.098, 0.686]), p(side + "knee_link"), p(side + "ankle_pitch_link")]
+    return np.array(arm), np.array(leg)
+
+
+SLIM_XC = -0.010    # torso depth center
+
+
+def slim_model(P, lab):
+    """Raw (unsmoothed) slim displacement per point from its part label."""
+    S = SLIM
+    D = np.zeros_like(P)
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    sp = lab == P_["spine"]
+    at = np.interp(z, [0.0, 1.00, 1.09, 1.16], [S["torso"], S["torso"], S["neck"], S["neck"]])
+    D[sp, 1] = -y[sp] * at[sp]
+    D[sp, 0] = -(x[sp] - SLIM_XC) * S["depth"]
+    for s, an, ln in ((1, "l_arm", "l_leg"), (-1, "r_arm", "r_leg")):
+        arm, leg = slim_axes(s)
+        m = lab == P_[an]
+        if m.any():
+            Q, T = _polyline_closest(P[m], arm)
+            Lw = np.linalg.norm(arm[1] - arm[0]) + np.linalg.norm(arm[2] - arm[1])
+            a = np.interp(T, [0, Lw - 0.01, Lw + 0.03], [S["arm"], S["arm"], S["hand"]])
+            D[m] = (Q - P[m]) * a[:, None]
+        m = lab == P_[ln]
+        if m.any():
+            Q, _T = _polyline_closest(P[m], leg)
+            Dl = (Q - P[m]) * S["leg"]
+            Df = np.zeros_like(Dl)
+            Df[:, 1] = (leg[2][1] - P[m][:, 1]) * S["foot"]
+            w = _sst(0.10, 0.17, P[m][:, 2])[:, None]
+            D[m] = Dl * w + Df * (1 - w)
+    return D
+
+
+def mesh_edges(ob):
+    ev = np.zeros(len(ob.data.edges) * 2, int)
+    ob.data.edges.foreach_get("vertices", ev)
+    return ev.reshape(-1, 2)
+
+
+def smooth_field(F_, ev, n, iters, alpha=0.5):
+    deg = np.maximum(np.bincount(ev.ravel(), minlength=n), 1).astype(float)
+    for _ in range(iters):
+        acc = np.zeros_like(F_)
+        np.add.at(acc, ev[:, 0], F_[ev[:, 1]])
+        np.add.at(acc, ev[:, 1], F_[ev[:, 0]])
+        F_ = (1 - alpha) * F_ + alpha * acc / deg[:, None]
+    return F_
+
+
+def set_positions(ob, P):
+    ob.data.vertices.foreach_set("co", np.asarray(P, np.float32).ravel())
+    ob.data.update()
+
+
+SLIM_D = None
+if SLIM and "Body" in objs:
+    log("slim pass")
+    import mathutils.kdtree
+    body = objs["Body"]
+    PB, _ = mesh_arrays(body)
+    D = slim_model(PB, LABELS["Body"])
+    D = smooth_field(D, mesh_edges(body), len(PB), 40)
+    KD = mathutils.kdtree.KDTree(len(PB))
+    for i, co in enumerate(PB):
+        KD.insert(co, i)
+    KD.balance()
+
+    def slim_at(P):
+        """Body displacement at the nearest body vertex, and the distance to it."""
+        idx = np.zeros(len(P), int)
+        dist = np.zeros(len(P))
+        for i, co in enumerate(P):
+            _c, j, d = KD.find(co)
+            idx[i], dist[i] = j, d
+        return D[idx], dist
+
+    SLIM_D = slim_at
+    for name, ob in {**objs, **CARDS}.items():
+        if name.startswith("Eye"):
+            continue
+        P, _ = mesh_arrays(ob)
+        if name == "Body":
+            set_positions(ob, P + D)
+            continue
+        Dp, dist = slim_at(P)
+        if name in ("Head", "Ponytail") or name in CARDS:
+            # only the neck and whatever lies on the body (side locks over the chest) follow it
+            Dp = Dp * (_sst(1.175, 1.125, P[:, 2]) * _sst(0.035, 0.008, dist))[:, None]
+        set_positions(ob, P + Dp)
+    log(f"  max body shift {np.linalg.norm(D, axis=1).max() * 1000:.1f} mm")
+
 # ---------------------------------------------------------------- rig
 log("rigging")
 rig = Rig(W, elf)
@@ -469,6 +633,8 @@ for name, (node, root, length, *d_opt) in flaps.items():
     dirs = {"front": (0.12, 0, -1), "back": (-0.16, 0, -1), "left": (0.06, 0.30, -1), "right": (0.06, -0.30, -1)}
     d = np.asarray(d_opt[0] if d_opt else dirs[name], float)
     d /= np.linalg.norm(d)
+    if SLIM_D is not None:                 # the flap moved in with the belt under it
+        root = root + SLIM_D(root[None])[0][0]
     pts = [root + d * length * t for t in np.linspace(0, 1, 6)]
     flap_chains[name] = rig.add_chain(f"flap_{name}", "pelvis", pts, 2)
 
@@ -511,7 +677,12 @@ def weights_for(ob):
                     "right_hip_yaw_link": 0.75 * t * (1 - side)}
         return {EXTRA[name].get("bone", "torso_link"): np.ones(nv)}
     if name == "Pauldron":
-        return {"left_shoulder_roll_link": np.ones(nv)}
+        if BODY_W is None:
+            return {"left_shoulder_roll_link": np.ones(nv)}
+        # follows the skin under it (shoulder cap blends torso -> arm), so it never lifts off the shoulder
+        names_, Wb, kd = BODY_W
+        idx = np.array([kd.find(co)[1] for co in P])
+        return {n: Wb[idx, i] for i, n in enumerate(names_)}
     if name == "Runes":
         out = {}
         for s in (1, -1):
@@ -526,7 +697,7 @@ def weights_for(ob):
         names, joints = flap_chains[fname]
         return rig.chain_param_weights(P, joints, names, [0.03])
     # main body: by part label
-    _, _, part = pieces[name]["node"].tags(P.astype(sdf.F), 0.01)
+    part = LABELS[name] if name in LABELS else pieces[name]["node"].tags(P.astype(sdf.F), 0.01)[2]
     out = {}
 
     def acc(wd, mask):
@@ -579,17 +750,30 @@ def apply_weights(ob, wd):
 
 
 objs.update(CARDS)
+BODY_W = None
 for name, ob in objs.items():
     wd = weights_for(ob)
     if name == "Body":
         wd = smooth_weights(ob, wd, iters=8)
+        import mathutils.kdtree
+        PB, _ = mesh_arrays(ob)
+        kd = mathutils.kdtree.KDTree(len(PB))
+        for i, co in enumerate(PB):
+            kd.insert(co, i)
+        kd.balance()
+        BODY_W = (list(wd), np.stack(list(wd.values()), 1), kd)
     elif name in ("Ponytail", "Skirt") or name.startswith("Flap_"):
         wd = smooth_weights(ob, wd, iters=3)
+    elif name == "Pauldron":
+        wd = smooth_weights(ob, wd, iters=6)
     apply_weights(ob, wd)
     log(f"  weights {name}: {len(wd)} bones")
 
 # runtime metadata: which G1 body drives each bone and that body's bind pose (MuJoCo frame)
 meta = {"version": 1, "frame": "mujoco", "bind_angles": g1.BIND, "bones": {}, "springs": []}
+RIG_SCALE = float(getattr(elf, "rig_scale", 1.0))
+if RIG_SCALE != 1.0:
+    meta["scale"] = RIG_SCALE      # uniform size about the floor point under the pelvis (runtime + pose.py)
 for bn, (parent, head, tail, body) in rig.bones.items():
     if body:
         Mb = W[body]
@@ -611,6 +795,20 @@ meta["colliders"] = [
 ] + [c for s, y in (("left", 1), ("right", -1)) for c in (
     {"bone": f"{s}_hip_yaw_link", "a": [0.0, y * 0.104, 0.66], "b": [0.004, y * 0.116, 0.38], "r": 0.050},
     {"bone": f"{s}_hip_yaw_link", "a": [0.012, y * 0.070, 0.66], "b": [0.016, y * 0.090, 0.42], "r": 0.040})]
+if SLIM:
+    # colliders slim with the body: torso about its centerline, thighs about the hip-knee axis
+    for c in meta["colliders"]:
+        if c["bone"] in ("torso_link", "pelvis"):
+            for k in ("a", "b"):
+                c[k] = [c[k][0] - (c[k][0] - SLIM_XC) * SLIM["depth"], c[k][1] * (1 - SLIM["torso"]), c[k][2]]
+            c["r"] = round(c["r"] * (1 - 0.5 * (SLIM["torso"] + SLIM["depth"])), 4)
+        elif "hip" in c["bone"]:
+            leg = slim_axes(1 if c["bone"].startswith("left") else -1)[1]
+            for k in ("a", "b"):
+                Pk = np.array([c[k]], float)
+                Q, _T = _polyline_closest(Pk, leg)
+                c[k] = (Pk + (Q - Pk) * SLIM["leg"])[0].round(4).tolist()
+            c["r"] = round(c["r"] * (1 - SLIM["leg"]), 4)
 arm_ob["g1_rig"] = json.dumps(meta)
 
 # ---------------------------------------------------------------- export
@@ -625,6 +823,8 @@ with bpy.context.temp_override(**ctx()):
                           export_vertex_color="ACTIVE", export_all_vertex_colors=False, export_attributes=True,
                           export_apply=False, export_def_bones=False, export_rest_position_armature=True)
 log(f"wrote {glb} ({glb.stat().st_size / 1e6:.1f} MB)")
+# the .blend shows the character at its game size (pose.py sets the same scale); the GLB stays unscaled
+arm_ob.scale = (RIG_SCALE,) * 3
 with bpy.context.temp_override(**ctx()):
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT / f"{CHAR}.blend"), copy=True)
 

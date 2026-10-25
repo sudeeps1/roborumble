@@ -7,6 +7,8 @@
 // Driving math, per bone with a driving body:  BoneWorld = BodyNow * inverse(BodyBind) * BoneBind
 // (all in root space = MuJoCo frame). Bones get local = inverse(ParentWorld) * BoneWorld, so three's
 // normal matrixWorld update and skinning do the rest. Spring bones (hair, flaps) are simulated.
+// Optional g1_rig.scale (default 1): the drawn character is scaled uniformly about the floor point under the
+// pelvis every frame (feet stay on the floor; springs and colliders run unscaled underneath).
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -27,6 +29,8 @@ export interface RigMeta {
   bones: Record<string, { body: string; pos: Vec3; quat: Quat }>;
   springs: SpringDef[];
   colliders: { bone: string; a: Vec3; b: Vec3; r: number }[];
+  /** Uniform size about the floor point under the pelvis (taller/shorter than the G1). Default 1. */
+  scale?: number;
 }
 
 export interface CharacterOptions {
@@ -64,7 +68,10 @@ export class CharacterView {
   private bones: BoneRec[] = [];
   private boneIndex = new Map<string, number>();
   private bodies = new Map<string, BodyRec>();
-  private world: THREE.Matrix4[] = [];      // current root-space bone matrices
+  private world: THREE.Matrix4[] = [];      // current root-space bone matrices (G1 size)
+  private shown: THREE.Matrix4[] = [];      // the same, with the character's scale applied (what is drawn)
+  private readonly scale: number;
+  private readonly sizeM = new THREE.Matrix4();
   private bindWorld: THREE.Matrix4[] = [];
   private inv: THREE.Matrix4[] = [];
   private springs: SpringChain[] = [];
@@ -98,6 +105,7 @@ export class CharacterView {
     const raw = rig.userData.g1_rig;
     this.meta = (typeof raw === "string" ? JSON.parse(raw) : raw) as RigMeta;
     if (!this.meta?.bones) throw new Error("elf.glb: ElfRig.userData.g1_rig missing");
+    this.scale = this.meta.scale && this.meta.scale > 0 ? this.meta.scale : 1;
 
     // glTF Y-up -> MuJoCo Z-up: glTF (x, y, z) = MuJoCo (x, z, -y) => rotate +90 deg about X
     const yup = new THREE.Group();
@@ -136,6 +144,7 @@ export class CharacterView {
       this.bones.push({ bone: b, name: b.name, parent, parentFixed, parentFixedInv: parentFixed ? parentFixed.clone().invert() : null, body, offset, restLocal, spring: false });
       this.bindWorld.push(bindWorld);
       this.world.push(bindWorld.clone());
+      this.shown.push(bindWorld.clone());
       this.inv.push(new THREE.Matrix4());
       b.matrixAutoUpdate = false;
     }
@@ -220,20 +229,30 @@ export class CharacterView {
 
   private applyLocals() {
     const W = this.world;
+    // size: S = T(c) * scale * T(-c), c = floor point under the pelvis. Only root bones carry it (in a child's
+    // local = inverse(S * ParentWorld) * S * World it cancels).
+    const S = this.sizeM.identity();
+    if (this.scale !== 1) {
+      const pel = this.bodies.get("pelvis")?.now.elements;
+      const cx = pel ? pel[12] : 0, cy = pel ? pel[13] : 0, k = this.scale;
+      S.set(k, 0, 0, cx * (1 - k), 0, k, 0, cy * (1 - k), 0, 0, k, 0, 0, 0, 0, 1);
+    }
     for (let i = 0; i < this.bones.length; i++) {
       const b = this.bones[i];
       this.inv[i].copy(W[i]).invert();
       const local = b.bone.matrix;
+      this.shown[i].multiplyMatrices(S, W[i]);
       if (b.parent >= 0) local.multiplyMatrices(this.inv[b.parent], W[i]);
-      else local.multiplyMatrices(b.parentFixedInv!, W[i]);
+      else local.multiplyMatrices(b.parentFixedInv!, this.shown[i]);
       b.bone.matrixWorldNeedsUpdate = true;
     }
   }
 
-  /** Root-space (MuJoCo) matrix of a bone, e.g. "right_wrist_yaw_link" for hit sparks. */
+  /** Root-space (MuJoCo) matrix of a bone as drawn (character scale included), e.g. "right_wrist_yaw_link"
+   *  for hit sparks. */
   boneMatrix(name: string): THREE.Matrix4 | null {
     const i = this.boneIndex.get(name);
-    return i === undefined ? null : this.world[i];
+    return i === undefined ? null : this.shown[i];
   }
 
   /** 0..1: runes and gem pulse brighter (the "charging" state). */

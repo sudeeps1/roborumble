@@ -53,6 +53,14 @@ HAND_SCALE = 1.08   # fists a touch oversized so they read at game distance
 
 class OutfitMixin:
     # ------------------------------------------------------------ helpers
+    def tint_weights(self, P):
+        """Soft vertex-color tints painted inside one material: [(weight 0..1, on material, toward color)].
+        The breastplate's dark leaf is one, so its outline is a smooth gradient instead of a jagged face border."""
+        u, v = P[:, 2] - 0.919, P[:, 1]
+        ld = leaf2d(u, v, 0.114, 0.025, 0.7, 1.1)
+        w = sstep(0.0010, -0.0035, ld) * sstep(0.0, 0.03, P[:, 0]) * 0.85
+        return [(w, "leather", "leather_dark")]
+
     def _hand(self, s):
         """Hand-local frame: origin at wrist_yaw, x to the knuckles, y back of hand (+) / palm (-), z thumb side.
         Columns are mirrored for the right hand so one set of left-hand numbers serves both."""
@@ -112,6 +120,7 @@ class OutfitMixin:
             el = self.p(self.side(s, "elbow_link"))
             wr = self.p(self.side(s, "wrist_yaw_link"))
             caps[s] = union(round_cone(sh, el, 0.058, 0.046), round_cone(el, wr, 0.046, 0.040))
+            self.base.arm_caps = {**(self.base.arm_caps or {}), s: (sh, el, 0.058, 0.046)}
             self._limb_sdf[s] = Inter(self.base_node, caps[s], k=0.004)
         self._torso_sdf = Sub(self.base_node, union(caps[1], caps[-1]), k=0.004)
         # Sculpted fists, bracers and boots go on top.
@@ -174,9 +183,9 @@ class OutfitMixin:
         tm = 0.5 * (t0 + t1)
         bracer = union(
             custom(lambda P: can(P, 0.0, t0, t1, 0.0025), lo, hi, **lea),
-            custom(lambda P: can(P, 0.0034, t0 - 0.0012, t0 + 0.0085, 0.0013), lo, hi, **gld),
-            custom(lambda P: can(P, 0.0034, t1 - 0.0085, t1 + 0.0012, 0.0013), lo, hi, **gld),
-            custom(lambda P: can(P, 0.0026, tm - 0.0060, tm + 0.0060, 0.0012), lo, hi, **drk),
+            custom(lambda P: can(P, 0.0030, t0 - 0.0012, t0 + 0.0085, 0.0024), lo, hi, **gld),
+            custom(lambda P: can(P, 0.0030, t1 - 0.0085, t1 + 0.0012, 0.0024), lo, hi, **gld),
+            custom(lambda P: can(P, 0.0022, tm - 0.0060, tm + 0.0060, 0.0022), lo, hi, **drk),
             k=0.0)
         out_dir = s * Rfa[:, 1]
         stud_c = el + fa * tm + out_dir * (rad(tm) + 0.0012)
@@ -275,7 +284,7 @@ class OutfitMixin:
             emb = side * (0.0021 * sstep(0.0007, -0.0007, ld) - 0.0009 * vein)
             return amp * np.clip(0.5 + 0.5 * np.sin(ph), 0, 1) ** 1.5 - seam + emb
 
-        shaft = Map(shaft_raw, f=lambda P, d: d - wrinkle(P), grow=0.002)
+        shaft = shaft_raw            # smooth leather (the old ankle wrinkles, back seam and embossed leaf: wrinkle())
         yt = y + s * 0.003
         foot_up = union(
             ellipsoid((-0.029, y, 0.046), (0.035, 0.031, 0.042), **bt),                    # heel counter
@@ -364,7 +373,7 @@ class OutfitMixin:
         # ---------------- leggings
         def legging(P):
             r = sstep(0.803, 0.797, P[:, 2]) * sstep(0.19, 0.18, np.abs(P[:, 1]))
-            t = r * (0.0013 + 0.0004 * fbm(P, 150, 2))
+            t = r * 0.0013
             return t, M["legging"], r > 0.5
 
         # ---------------- tunic with folds and gold-piped armholes
@@ -375,14 +384,14 @@ class OutfitMixin:
                 sstep(0.158, 0.148, np.abs(y))
             ang = np.arctan2(y, x + 0.01)
             # compression folds above the belt
-            ph = (z - 0.836) / 0.0135 * 2 * np.pi + 1.3 * np.sin(2 * ang + 0.7) + 0.7 * np.sin(5 * ang + 1.1)
-            f = 0.0014 * sstep(0.836, 0.842, z) * sstep(0.912, 0.862, z) * np.clip(0.5 + 0.5 * np.sin(ph), 0, 1) ** 1.5
-            # vertical drape on the back
-            ph2 = y / 0.034 * 2 * np.pi + 2.0 * np.sin(z * 23 + 0.3)
-            f = f + 0.0015 * sstep(0.0, -0.03, x) * sstep(0.84, 0.88, z) * sstep(1.06, 0.99, z) * \
-                np.clip(0.5 + 0.5 * np.sin(ph2), 0, 1) ** 1.5
-            piping = 0.0022 * bump(ea - 0.0034, 0.0034)
-            t = r * (0.0026 + f + piping + 0.0004 * fbm(P, 140, 2))
+            ph = (z - 0.836) / 0.024 * 2 * np.pi + 0.8 * np.sin(2 * ang + 0.7)
+            f = 0.0006 * sstep(0.836, 0.846, z) * sstep(0.905, 0.860, z) * (0.5 + 0.5 * np.sin(ph))
+            # a soft vertical drape on the back
+            ph2 = y / 0.055 * 2 * np.pi + 1.2 * np.sin(z * 18 + 0.3)
+            f = f + 0.0006 * sstep(0.0, -0.03, x) * sstep(0.84, 0.89, z) * sstep(1.06, 0.98, z) * \
+                (0.5 + 0.5 * np.sin(ph2))
+            piping = 0.0017 * bump(ea - 0.0036, 0.0044)
+            t = r * (0.0026 + f + piping)
             return t, np.where(ea < 0.0069, M["gold"], M["tunic"]), r > 0.02
 
         # ---------------- breastplate: tooled leather, gold bead rim, embossed leaf
@@ -400,16 +409,14 @@ class OutfitMixin:
         def plate(P):
             e = plate_e(P)
             r = sstep(-0.0012, 0.0012, e)
-            bead = 0.0026 * bump(e - 0.0037, 0.0037)
-            groove = 0.0012 * bump(e - 0.0090, 0.0017)
-            tool = 0.0008 * bump(e - 0.0170, 0.0013)
+            bead = 0.0020 * bump(e - 0.0040, 0.0046)
             u, v = P[:, 2] - LEAF0, P[:, 1]
             ld = leaf2d(u, v, LEAFL, LEAFW, 0.7, 1.1)
-            vein = bump(leaf_veins(u, v, LEAFL, (0.028, 0.048, 0.068, 0.086), 0.8), 0.0014) * (ld < -0.003)
             front = sstep(0.0, 0.03, P[:, 0])
-            emb = (0.0024 * sstep(0.0008, -0.0008, ld) - 0.0011 * vein - 0.0009 * bump(ld + 0.0035, 0.0012)) * front
-            t = r * (0.0060 + bead - groove - tool + emb)
-            m = np.where(e < 0.0076, M["gold"], np.where((ld < -0.0035) & (P[:, 0] > 0), M["leather_dark"], M["leather"]))
+            emb = 0.0015 * sstep(0.0020, -0.0030, ld) * front
+            t = r * (0.0060 + bead + emb)
+            # the dark leaf is a vertex-color tint (tint_weights), so its outline stays smooth
+            m = np.where(e < 0.0076, M["gold"], M["leather"])
             return t, m, e > -0.0011
 
         # ---------------- harness: shoulder straps and a back strap (leather_dark), under the plate
@@ -421,8 +428,7 @@ class OutfitMixin:
             e = np.maximum(e_sh, e_bk)
             e = np.minimum(np.minimum(e, hole_e(P) - 0.010), 0.001 - plate_e(P))   # stops under the plate rim
             r = sstep(-0.001, 0.001, e)
-            stitch = 0.0007 * bump(e - 0.0035, 0.0010)
-            t = r * (0.0047 - stitch + 0.0010 * sstep(0.0, 0.0025, e))
+            t = r * (0.0047 + 0.0008 * sstep(0.0, 0.0040, e))
             return t, M["leather_dark"], e > -0.0009
 
         # ---------------- belt
@@ -432,8 +438,7 @@ class OutfitMixin:
             z = P[:, 2]
             e = np.minimum(z - BZ0, BZ1 - z)
             r = sstep(-0.0007, 0.0007, e) * sstep(0.17, 0.16, np.abs(P[:, 1]))
-            stitch = 0.0008 * bump(e - 0.0042, 0.0011)
-            t = r * (0.0062 + 0.0012 * sstep(0.0, 0.003, e) - stitch)
+            t = r * (0.0062 + 0.0010 * sstep(0.0, 0.0045, e))
             return t, M["leather_dark"], r > 0.02
 
         # ---------------- hand wraps (cloth bands from under the bracer over the palm and knuckles)
@@ -453,7 +458,7 @@ class OutfitMixin:
                 # diagonal bands with a groove between them
                 ph = (x + 0.42 * z) / 0.0125
                 fr = ph - np.floor(ph)
-                band = 0.0012 * sstep(0.0, 0.10, fr) * sstep(1.0, 0.86, fr)
+                band = 0.0006 * (0.5 - 0.5 * np.cos(2 * np.pi * fr))
                 t = np.maximum(t, reg * (0.0010 + band))
             return t, M["wrap"], t > 0.0002
 
@@ -469,7 +474,7 @@ class OutfitMixin:
             e = np.minimum(0.0085 - np.abs(t - 0.128), 0.085 - rad)
             e = np.minimum(e, -0.03 - P[:, 1])
             r = sstep(-0.0007, 0.0007, e)
-            t_ = r * (0.0038 + 0.0010 * sstep(0.0, 0.0025, e) - 0.0007 * bump(e - 0.0034, 0.0010))
+            t_ = r * (0.0038 + 0.0008 * sstep(0.0, 0.0040, e))
             return t_, M["leather"], e > -0.0007
 
         garments = [  # (fn, base materials it may repaint)
@@ -513,7 +518,7 @@ class OutfitMixin:
         gem = ellipsoid(c + n * 0.0055 + V(0, 0, 0.0), (0.0042, 0.0062, 0.0062), R=Rb, mat=M["gem"], part=S)
         out += [frame_, prong, gem]
         # belt studs
-        for deg in (32, 52, 100, 122, 146):
+        for deg in (52, 122):
             for s in (1, -1):
                 a = np.radians(deg) * s
                 d = V(np.cos(a), np.sin(a), 0)
@@ -554,7 +559,7 @@ class OutfitMixin:
         notch = custom(lambda P: np.maximum(np.abs(P[:, 1]) - 0.004 - (P[:, 2] - 1.105) * 0.35,
                                             np.maximum(0.02 - P[:, 0], 1.11 - P[:, 2])), (0.0, -0.05, 1.08), (0.08, 0.05, 1.2))
         shell = Sub(shell, notch, k=0.003)
-        return Map(shell, f=lambda P, d: d + 0.0005 * fbm(P, 160, 2))
+        return shell
 
     # ------------------------------------------------------------ separate pieces
     def _leafplate(self, root, down, out_dir, L, W, th, mat, edge_mat=None, u0=0.0, off=0.0, flare=0.0,
@@ -577,7 +582,7 @@ class OutfitMixin:
             e = -d2
             h = th + bead_h * bump(e - bead_w * 0.5, bead_w * 0.5)
             if rib:
-                h = h + rib * bump(v, 0.0035) * sstep(0.0, 0.03, u) * sstep(L * 0.92, L * 0.6, u)
+                h = h + rib * bump(v, 0.0060) * sstep(0.0, 0.03, u) * sstep(L * 0.92, L * 0.6, u)
             if veins:
                 h = h - 0.0007 * bump(leaf_veins(u, v, L, veins, 1.0), 0.0012) * (e > bead_w + 0.002) * \
                     (np.abs(v) > 0.004)
@@ -614,23 +619,20 @@ class OutfitMixin:
             self._leafplate(root, dn, od, 0.195, 0.048, 0.0015, Lt, Ld, u0=0.008, off=-0.0015, flare=0.012,
                             arch=0.008, bead_w=0.0040, bead_h=0.0008, a=0.42),
             self._leafplate(root, dn, od, 0.162, 0.041, 0.0016, T, G, u0=0.011, off=0.0042, flare=0.013,
-                            arch=0.007, bead_w=0.0052, bead_h=0.0014, rib=0.0010, a=0.42,
-                            veins=(0.040, 0.068, 0.096))), root, 0.19)
+                            arch=0.007, bead_w=0.0052, bead_h=0.0012, rib=0.0006, a=0.42)), root, 0.19)
         root = seat(V(-0.088, 0, 0.806), V(-0.25, 0, 0.806), (1, 0, 0))
         dn, od = (-0.16, 0, -1), (-1, 0, 0.12)
         out["back"] = (union(
             self._leafplate(root, dn, od, 0.185, 0.052, 0.0015, Lt, Ld, u0=-0.016, off=0.0005, flare=0.014,
                             arch=0.009, bead_w=0.0040, bead_h=0.0008, a=0.45),
             self._leafplate(root, dn, od, 0.155, 0.043, 0.0016, T, G, u0=-0.014, off=0.0060, flare=0.015,
-                            arch=0.008, bead_w=0.0052, bead_h=0.0014, rib=0.0010, a=0.45,
-                            veins=(0.045, 0.072, 0.098))), root, 0.17)
+                            arch=0.008, bead_w=0.0052, bead_h=0.0012, rib=0.0006, a=0.45)), root, 0.17)
         for s, name in ((1, "left"), (-1, "right")):
             root = seat(V(0.016, s * 0.118, 0.806), V(0.016, s * 0.30, 0.806), (0, -s, 0))
             dn, od = (0.06, s * 0.30, -1), (0.32, s * 1, 0.22)
             out[name] = (union(
                 self._leafplate(root, dn, od, 0.165, 0.047, 0.0018, Lt, G, u0=-0.012, off=0.006, flare=0.020,
-                                arch=-0.006, bead_w=0.0050, bead_h=0.0013, rib=0.0010,
-                                veins=(0.040, 0.066, 0.092)),
+                                arch=-0.006, bead_w=0.0050, bead_h=0.0011, rib=0.0006),
                 self._leafplate(root, dn, od, 0.105, 0.028, 0.0015, T, G, u0=-0.010, off=0.0105, flare=0.016,
                                 arch=-0.004, bead_w=0.0040, bead_h=0.0010)), root, 0.15)
         return out
@@ -644,7 +646,7 @@ class OutfitMixin:
         nodes = []
 
         def shell_leaf(e_up, e_out, R0, a0, a1, W, th=0.0016, flare=0.012, cup=0.004, bead_w=0.0045,
-                       bead_h=0.0011, rib_h=0.0012, veins=(0.035, 0.060, 0.085)):
+                       bead_h=0.0010, rib_h=0.0007, veins=()):
             e_up, e_out = norm(e_up), norm(e_out)
             e_out = norm(e_out - (e_out @ e_up) * e_up)
             m = np.cross(e_up, e_out)
@@ -661,9 +663,10 @@ class OutfitMixin:
                 e = -d2
                 rim = bump(e - bead_w * 0.5, bead_w * 0.5)
                 rs = R0 + flare * t * t + cup * (v / W) ** 2 + 0.5 * bead_h * rim
-                h = th + bead_h * rim + rib_h * bump(v, 0.0034) * sstep(0.004, 0.02, u) * sstep(Lr * 0.92, Lr * 0.6, u)
-                h = h - 0.0007 * bump(leaf_veins(u, v, Lr, veins, 1.0), 0.0011) * (e > bead_w + 0.002) * \
-                    (np.abs(v) > 0.0045)
+                h = th + bead_h * rim + rib_h * bump(v, 0.0060) * sstep(0.004, 0.02, u) * sstep(Lr * 0.92, Lr * 0.6, u)
+                if veins:
+                    h = h - 0.0007 * bump(leaf_veins(u, v, Lr, veins, 1.0), 0.0011) * (e > bead_w + 0.002) * \
+                        (np.abs(v) > 0.0045)
                 return smax(d2, np.abs(r - rs) - h, 0.0005), e
 
             def paint(P, mm):
@@ -677,17 +680,16 @@ class OutfitMixin:
 
         up = V(0, 0, 1)
         # top leaf: from beside the neck over the shoulder cap and down the outside of the arm
-        nodes.append(shell_leaf(up, V(0, 1, 0), 0.069, -0.32, 1.80, 0.055, flare=0.018,
-                                veins=(0.035, 0.058, 0.081, 0.104)))
+        nodes.append(shell_leaf(up, V(0, 1, 0), 0.064, -0.32, 1.80, 0.055, flare=0.018))
         # front and back leaves underneath, fanned 38 degrees forward / back
         for sgn in (1, -1):
             a = np.radians(38) * sgn
-            nodes.append(shell_leaf(up, V(np.sin(a), np.cos(a), 0), 0.0620, 0.02, 1.84, 0.040, flare=0.020,
-                                    cup=0.005, veins=(0.035, 0.058, 0.081)))
+            nodes.append(shell_leaf(up, V(np.sin(a), np.cos(a), 0), 0.0575, 0.02, 1.84, 0.040, flare=0.020,
+                                    cup=0.005))
         # boss with a gem where the leaves meet
         a = 0.10
         dirb = norm(V(0, np.sin(a), np.cos(a)))
-        bc = c + dirb * (0.069 + 0.0035)
+        bc = c + dirb * (0.064 + 0.0035)
         Rb = frame(dirb, (1, 0, 0))
 
         def boss(P):
@@ -715,25 +717,9 @@ class OutfitMixin:
                 t = q[:, 0]
                 ang = np.arctan2(s * q[:, 1], q[:, 2])
                 d = np.minimum(np.abs(t - 0.056) - 0.0013, np.abs(t - 0.114) - 0.0013)
-                tv = 0.085 + 0.017 * np.sin(3 * ang)
-                slope = 0.051 * np.cos(3 * ang) / r
+                tv = 0.085 + 0.014 * np.sin(2 * ang)
+                slope = 0.028 * np.cos(2 * ang) / r
                 d = np.minimum(d, np.abs(t - tv) / np.sqrt(1 + slope ** 2) - 0.0012)
-                for k in range(6):
-                    ak = k * np.pi / 3 + np.pi / 12
-                    tk = 0.085 + 0.017 * np.sin(3 * ak) + (0.0085 if k % 2 else -0.0085)
-                    da = np.angle(np.exp(1j * (ang - ak))) * r
-                    dt = t - tk
-                    th = np.radians(38 if k % 2 else -38)
-                    x1 = da * np.cos(th) + dt * np.sin(th)
-                    y1 = -da * np.sin(th) + dt * np.cos(th)
-                    leaf = np.sqrt((x1 / 0.0066) ** 2 + (y1 / 0.0028) ** 2) - 1
-                    d = np.minimum(d, leaf * 0.0028)
-                # small diamonds on the rings
-                for k in range(6):
-                    ak = k * np.pi / 3
-                    da = np.abs(np.angle(np.exp(1j * (ang - ak)))) * r
-                    for t0 in (0.056, 0.114):
-                        d = np.minimum(d, (da + np.abs(t - t0) * 1.3) - 0.0034)
                 # stay on the upper arm (the realistic skin field also contains the torso)
                 return np.maximum(d, np.sqrt(q[:, 1] ** 2 + q[:, 2] ** 2) - 0.055)
 

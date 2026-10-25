@@ -1,4 +1,5 @@
 # Sorceress: an AI-generated (Tripo) hooded dark-fantasy sorceress refit onto the G1 bind pose, staff removed,
+# micro-relief and filigree softened to the cast's detail level,
 # cloak hem trimmed to the knee and pulled in, recolored to the elf/knight palette, rigged to the G1 bones.
 #   /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python-exit-code 1 -P characters/blender/sorceress_build.py -- SRC.fbx
 # SRC.fbx: the unzipped tripo_convert_*.fbx (textures in the .fbm folder next to it).
@@ -116,6 +117,44 @@ bpy.ops.object.modifier_apply(modifier="dec")
 me = ob.data
 co = verts()
 log(f"decimated: {len(co)} verts, {len(me.polygons)} faces")
+
+# ---------------------------------------------------------------- smooth out the sculpted micro-relief
+def taubin(co, iters, wv, lam=0.5, mu=-0.53):
+    """Volume-keeping Laplacian smoothing (Taubin lambda|mu). Open-boundary verts (the cut hem, sleeve rims) only
+    follow their boundary neighbors, so ragged cut edges straighten without the rim shrinking inward."""
+    ev = np.zeros(len(me.edges) * 2, int)
+    me.edges.foreach_get("vertices", ev)
+    ev = ev.reshape(-1, 2)
+    le = np.zeros(len(me.loops), int)
+    me.loops.foreach_get("edge_index", le)
+    eb = np.bincount(le, minlength=len(ev)) == 1
+    vb = np.zeros(len(co), bool)
+    vb[ev[eb].ravel()] = True
+    dst = np.concatenate([ev[:, 0], ev[:, 1]])
+    src = np.concatenate([ev[:, 1], ev[:, 0]])
+    ok = ~vb[dst] | np.concatenate([eb, eb])
+    dst, src = dst[ok], src[ok]
+    dg = np.maximum(np.bincount(dst, minlength=len(co)), 1)[:, None]
+    for _ in range(iters):
+        for f in (lam, mu):
+            acc_ = np.zeros_like(co)
+            np.add.at(acc_, dst, co[src])
+            co = co + f * wv[:, None] * (acc_ / dg - co)
+    log(f"taubin x{iters}: {vb.sum()} boundary verts")
+    return co
+
+
+HEAD_C = A(0.070, -0.045, 0.860)
+wv = np.clip((np.linalg.norm(co - HEAD_C, axis=1) - 0.050) / 0.025, 0.12, 1)        # keep the face
+for n in ("l", "r"):
+    wv = np.minimum(wv, np.clip((seg_dist(co, R[n + "_wrist"], R[n + "_hand"])[0] - 0.022) / 0.02, 0.12, 1))
+co = taubin(co, 8, wv)                   # light pass: soften the sculpted relief, keep the folds
+me.vertices.foreach_set("co", co.ravel())
+me.update()
+if me.has_custom_normals:                                             # the FBX carried the sculpt's normals
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.mesh.customdata_custom_splitnormals_clear()
+    log("cleared custom normals")
 
 # ---------------------------------------------------------------- pull the cloak in toward the body
 armd = np.full(len(co), np.inf)
@@ -341,6 +380,14 @@ nrm = load("normal")
 style.matte(rough, metal)
 base, emis_px = recolor(load("basecolor"), metal, rough)
 style.stylize_image(base, lift=0.0, gamma=1.0)
+# detail downscale to the cast's level: fine filigree and texture noise at about half contrast (broad shapes and
+# the trim stay), sculpted relief in the normal map at 40%
+_a = px(base)
+_a[..., :3] = _a[..., :3] * 0.55 + style._blur(_a[..., :3], 3) * 0.45
+base.pixels.foreach_set(_a.ravel())
+_n = px(nrm)
+_n[..., :3] = _n[..., :3] * 0.4 + np.array([0.5, 0.5, 1.0], np.float32) * 0.6
+nrm.pixels.foreach_set(_n.ravel())
 emis = bpy.data.images.new("sorceress_emis", TEX, TEX)
 emis.pixels = emis_px.ravel().tolist()
 base = bake_jpeg(base, "base", 94)
@@ -357,8 +404,7 @@ tb.image, tr.image, tmtl.image, tn.image, te.image = base, rough, metal, nrm, em
 nt.links.new(tb.outputs["Color"], bsdf.inputs["Base Color"])
 nt.links.new(tr.outputs["Color"], bsdf.inputs["Roughness"])
 nt.links.new(tmtl.outputs["Color"], bsdf.inputs["Metallic"])
-nt.links.new(te.outputs["Color"], bsdf.inputs["Emission Color"])
-bsdf.inputs["Emission Strength"].default_value = 2.0
+# no emission: the runtime drops the emissive map and would make her glow white
 nm_node = nt.nodes.new("ShaderNodeNormalMap")
 nt.links.new(tn.outputs["Color"], nm_node.inputs["Color"])
 nt.links.new(nm_node.outputs["Normal"], bsdf.inputs["Normal"])
