@@ -148,6 +148,9 @@ export async function loadMagicProps(): Promise<THREE.Group> {
     box.setFromObject(m).getCenter(c);
     const r = Math.hypot(c.x, c.z), half = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
     if (r - half < PROP_CLEAR || r > 15) { m.visible = false; return; }
+    // each piece stands on the floor (the pack's own layout had them on a raised base: they floated)
+    const sy = m.parent!.getWorldScale(new THREE.Vector3()).y || 1;
+    m.position.y -= box.min.y / sy;
     m.material = fairyMat; m.castShadow = true;
   });
   yup.add(fairy);
