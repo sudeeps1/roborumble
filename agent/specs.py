@@ -227,6 +227,10 @@ PLAIN_WORDS = {
     "spinning", "back", "front", "side", "roundhouse", "high", "low", "double", "flying", "palm", "strike", "stomp",
     "slam", "push", "shove", "charge", "shoulder", "body", "chop", "hammer", "fist", "spin", "jump", "step", "parry",
     "guard", "brace", "backfist", "haymaker", "lunge", "throw", "toss", "swing", "smash", "clap", "bash", "with", "the",
+    # directions, body parts and plain combat modifiers (review finding 10: "Left Hook", "Head Kick", ...)
+    "left", "right", "head", "leg", "legs", "foot", "feet", "hand", "hands", "arm", "arms", "knees", "elbows", "fists",
+    "quick", "fast", "straight", "overhand", "snap", "rising", "crescent", "axe", "heel", "spin", "reverse", "lead",
+    "rear", "forward", "backward", "jumping", "running", "leaping", "sliding", "low", "both", "twin", "triple",
 }
 
 

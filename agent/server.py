@@ -58,7 +58,7 @@ class Server:
         r = self._req("POST", "/generate", spec)
         job = (r or {}).get("job")
         if not job:
-            raise ServerError(f"POST /generate returned no job: {r}")
+            raise ServerError(f"POST /generate returned no job: {r}", -1)  # -1: permanent, don't retry
         return str(job)
 
     def job(self, job_id: str) -> dict[str, Any]:

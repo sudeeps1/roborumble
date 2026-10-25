@@ -24,9 +24,11 @@ from typing import Any
 
 from server import FakeServer, Server, ServerError, thin_types
 from specs import MODEL, THEMES, ClaudeFailure, FakeClaude, ask_claude, user_prompt, validate
-from state import HERE, PromptIndex, State, norm
+from state import HERE, PromptIndex, State, norm, same_directions
 
 REUSE_SIMILARITY = 0.95  # CLAUDE.md: near-duplicate kimodo_prompts share a motion
+JOB_TIMEOUT = 600        # s: a job still running after this is re-posted once, then rejected
+POLL_ERROR_LIMIT = 5     # HTTP errors polling one job before it counts as rejected
 POLL_S = 0.25            # CLAUDE.md: poll jobs every 250 ms
 SPEC_KEYS = ["name", "aliases", "type", "kind", "effect", "kimodo_prompt", "hit_joint", "duration", "power", "source", "creator", "uses", "motion_id"]
 
@@ -43,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--theme", help="use only this theme instead of rotating (e.g. 'winter tales')")
     p.add_argument("--dry-run", action="store_true", help="ask Claude and check the specs but don't POST /generate; read batches/*.md")
     p.add_argument("--offline", action="store_true", help="fake Claude and the server, to test the loop without keys or a GPU")
+    p.add_argument("--fake-claude", action="store_true", help="fake Claude but talk to the real server (test the server without Claude keys)")
     p.add_argument("--max-pending", type=int, default=6, help="jobs in flight at once (default 6)")
     p.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"], help="Claude effort (CLAUDE.md: high overnight)")
     p.add_argument("--library-file", help="library/moves.jsonl to read existing moves from if the server has no GET /library/moves")
@@ -108,9 +111,9 @@ class Builder:
         self.log_path = HERE / "log.txt"
         self.review = Review(HERE / "batches")
         self.server: Server | FakeServer = FakeServer() if args.offline else Server(args.server)
-        self.fake = FakeClaude() if args.offline else None
+        self.fake = FakeClaude() if args.offline or args.fake_claude else None
         self.claude = None
-        if not args.offline:
+        if not self.fake:
             import anthropic  # credentials: ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or an `ant auth login` profile
 
             self.claude = anthropic.Anthropic(max_retries=4)
@@ -258,7 +261,7 @@ class Builder:
                 spec = rec["spec"]
                 item: dict[str, Any] = {"spec": spec, "theme": theme, "batch": batch}
                 sim, motion = nearest[i]
-                twin = next((j for j in generators if pair[j][i] >= REUSE_SIMILARITY), None)
+                twin = next((j for j in generators if pair[j][i] >= REUSE_SIMILARITY and same_directions(prompts[j], prompts[i])), None)
                 if motion and sim >= REUSE_SIMILARITY:
                     spec["motion_id"] = motion
                     plan = f"reuse {motion} (similarity {sim:.2f})"
@@ -295,8 +298,12 @@ class Builder:
             try:
                 job = self.server.generate(payload)
             except ServerError as e:
+                if e.status == -1 or (e.status is not None and 400 <= e.status < 500 and e.status not in (408, 409, 429)):
+                    # the server will never take this spec: drop it, keep going (review finding 8)
+                    self._rejected({**item, "job": None}, f"POST /generate {e.status if e.status != -1 else 'no job'}", pending=False)
+                    continue
                 with self.state.lock:
-                    self.state.queue.insert(0, item)
+                    self.state.queue.append(item)  # temporary trouble: back of the line, not the front
                 self._server_trouble(e)
                 return
             with self.state.lock:
@@ -323,9 +330,25 @@ class Builder:
         for p in pending:
             if time.time() < self.server_down_until:
                 return
+            if time.time() - p.get("posted_at", time.time()) > JOB_TIMEOUT:  # review finding 9
+                with self.state.lock:
+                    self.state.pending.remove(p)
+                    if not p.get("retried"):
+                        self.state.queue.append({k: v for k, v in p.items() if k not in ("job", "posted_at", "poll_errors")} | {"retried": True})
+                    self.state.save()
+                if p.get("retried"):
+                    self._rejected(p, "timeout", pending=False)
+                else:
+                    log(f"[warn] job {p['job']} ran over {JOB_TIMEOUT} s; posting '{p['spec']['name']}' once more")
+                continue
             try:
                 r = self.server.job(p["job"])
             except ServerError as e:
+                if e.status is not None and e.status != 404:  # this job's problem, not the server's: count it, poll the rest
+                    p["poll_errors"] = p.get("poll_errors", 0) + 1
+                    if p["poll_errors"] >= POLL_ERROR_LIMIT:
+                        self._rejected(p, f"poll error {e.status}")
+                    continue
                 if e.status == 404:  # the server lost the job (restart?): try the spec once more
                     with self.state.lock:
                         self.state.pending.remove(p)
@@ -344,8 +367,8 @@ class Builder:
                 self._kept(p, r)
             elif status == "rejected":
                 self._rejected(p, str(r.get("check") or r.get("reason") or r.get("error") or "rejected"))
-            elif status not in ("running", "queued", None):
-                log(f"[warn] job {p['job']}: unexpected status {status!r}")
+            elif status not in ("running", "queued", None):  # error, failed, ...: terminal, count it as rejected
+                self._rejected(p, f"status {status}")
 
     def _kept(self, p: dict[str, Any], r: dict[str, Any]) -> None:
         spec = p["spec"]
@@ -355,7 +378,7 @@ class Builder:
             self.state.pending.remove(p)
             self.state.names.update({norm(spec["name"]), *(norm(a) for a in spec["aliases"])})
             self.state.theme_names.setdefault(p["theme"], []).append(spec["name"])
-            if motion:
+            if motion and not spec.get("motion_id"):  # only prompts that made their own motion (no reuse chains)
                 self.state.prompts.append({"prompt": spec["kimodo_prompt"], "motion_id": motion})
                 self._index_many([(spec["kimodo_prompt"], motion)])
             self.state.count("kept")
@@ -366,10 +389,11 @@ class Builder:
                            move={k: move.get(k) for k in ("id", "motion_id", "hit_frame", "stability", "originality") if k in move})
         log(f"kept '{spec['name']}' ({spec['type']}/{spec['kind']}) -> {move.get('id', '?')}")
 
-    def _rejected(self, p: dict[str, Any], check: str) -> None:
+    def _rejected(self, p: dict[str, Any], check: str, pending: bool = True) -> None:
         spec = p["spec"]
         with self.state.lock:
-            self.state.pending.remove(p)
+            if pending and p in self.state.pending:
+                self.state.pending.remove(p)
             self.failed_prompts.add(spec["kimodo_prompt"])
             self.state.count("rejected", reason=check[:40])
             self.state.save()

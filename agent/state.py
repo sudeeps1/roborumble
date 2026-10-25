@@ -103,6 +103,19 @@ class State:
                     f.write("\n".join(lines) + "\n")
 
 
+DIRECTION = re.compile(r"\b(left|right|forwards?|backwards?|back|up(?:ward)?|down(?:ward)?|both|sideways|behind|overhead)\b", re.I)
+
+
+def directions(prompt: str) -> frozenset[str]:
+    """Side and direction words. Mirrored prompts ('left hook' vs 'right hook') embed almost identically,
+    so motion reuse also requires these to match (review finding 7)."""
+    return frozenset(w.lower().rstrip("s").replace("ward", "") for w in DIRECTION.findall(prompt))
+
+
+def same_directions(a: str, b: str) -> bool:
+    return directions(a) == directions(b)
+
+
 class PromptIndex:
     """Finds near-duplicate kimodo_prompts (embedding cosine similarity) so specs can share a motion.
 
@@ -147,10 +160,21 @@ class PromptIndex:
         if self.lexical:
             from difflib import SequenceMatcher
 
-            known = [(norm(p), m) for p, m in self.items]
-            return [max(((SequenceMatcher(None, norm(q), p).ratio(), m) for p, m in known), key=lambda x: x[0]) for q in prompts]
+            out = []
+            for q in prompts:
+                scored = [(SequenceMatcher(None, norm(q), norm(p)).ratio(), m) for p, m in self.items if same_directions(q, p)]
+                out.append(max(scored, key=lambda x: x[0]) if scored else (0.0, None))
+            return out
         sims = self._embed(prompts) @ self.vecs.T
-        return [(float(row.max()), self.items[int(row.argmax())][1]) for row in sims]
+        out = []
+        for q, row in zip(prompts, sims):
+            best = (0.0, None)
+            for k in row.argsort()[::-1][:25]:  # closest first; skip mirrored ones
+                if same_directions(q, self.items[int(k)][0]):
+                    best = (float(row[k]), self.items[int(k)][1])
+                    break
+            out.append(best)
+        return out
 
     def pairwise(self, prompts: list[str]) -> list[list[float]]:
         """Similarity matrix between prompts (for near-duplicates inside one batch)."""
