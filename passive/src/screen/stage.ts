@@ -28,7 +28,8 @@ export class Stage {
   constructor(container: HTMLElement, world: World) {
     this.world = world;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    // a big screen gets one render pixel per CSS pixel: at 1080p and up, more costs frames (45 fps at 1.5x)
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, innerWidth >= 1600 ? 1 : 1.5));
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.toneMapping = THREE.AgXToneMapping;
     this.renderer.toneMappingExposure = 1.05;
@@ -51,9 +52,10 @@ export class Stage {
     const key = this.key;
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    Object.assign(key.shadow.camera, { left: -3.2, right: 3.2, top: 3.2, bottom: -3.2, near: 0.5, far: 16 });
+    Object.assign(key.shadow.camera, { left: -4.5, right: 4.5, top: 4.5, bottom: -4.5, near: 0.5, far: 16 }); // fighters 3.4 m apart plus their shadows
     key.shadow.bias = -0.0003;
     key.shadow.normalBias = 0.018;
+    key.shadow.radius = 5; // soft-edged shadows (PCF)
     this.scene.add(key, key.target);
     for (const [color, intensity] of [[0xb8c8ff, 0.7], [0x9fbcff, 1.7], [0xb8b0ff, 1.3]] as const) {
       const l = new THREE.DirectionalLight(color, intensity);

@@ -2,7 +2,7 @@
 
 The big screen of the three devices (the two players' phones are the others). It runs the real sim
 from `src/core/` (two G1s on SONIC in MuJoCo, referee, combat, spells) and draws it as the elf and
-the knight in an arena, with a live camera, spell effects, the HUD and best-of-3 rounds.
+the knight in a dusk meadow, with a live camera, spell effects, the HUD and best-of-3 rounds.
 
 ## Run it
 ```
@@ -46,7 +46,7 @@ work with no art per spell.
 | `src/screen/fx.ts` | spell effects by type x kind, hit sparks, flashes, dust and stone chips on floor slams |
 | `src/screen/hud.ts`, `hud.css` | plates, HP with a damage trail, balance, timer, pips, callouts, damage numbers, banners |
 | `src/screen/portrait.ts` | the character icons, rendered from the real models at load |
-| `src/screen/arena.ts` | the plain floor (flat at z = 0) and the ring line at the ropes |
+| `src/screen/arena.ts` | the setting: a dusk meadow (below) |
 
 ### The camera
 - Stays square to the fighters (lazily, so it swings, never snaps) and frames both plus anything
@@ -59,12 +59,22 @@ work with no art per spell.
   close onto the fallen fighter. The winner gets a slow push-in at the end of the match.
 - Intro: a crane down from high and wide each round.
 
-### Arena compatibility
-Floor flat at z = 0 (the physics floor) everywhere, the ring line at the ropes (`REFEREE.rope`), nothing
-tall where a body can fall. Numbers come from `src/core/arena.ts` and `scene.ts`, not copies.
+### The setting
+A meadow at dusk with no hard lines:
+- A soft sandy pad, solid to 3.3 m, that fades into the grass by 4.6 m.
+- A soft band of warm light centred on the ropes (`REFEREE.rope`) instead of a ring line.
+- Round trees (a few pink with blossom) 17-30 m out, all the way round, since the camera circles with the
+  fighters.
+- Rolling hills beyond the trees.
+- Exponential fog: clear around the fight, hazy by the trees, gone by the horizon. The sky dome's horizon
+  is exactly the fog colour, so the ground melts into the sky without a seam.
+- Light: a lavender sky fill, a green bounce, a low warm sun, soft-edged shadows.
+
+Compatible with the physics: the ground is flat at z = 0 (the physics floor) everywhere a body or the
+camera can be; nothing but the floor stands within 15 m. Numbers come from `src/core/arena.ts`, not copies.
 
 ## Look
-Kept simple on purpose: a plain floor and a soft dusk background, gentle light (lower exposure and bloom
+Kept simple on purpose: a soft dusk meadow, gentle light (lower exposure and bloom
 than the rig), a storybook-soft HUD (cream and gold trim, coral vs periwinkle pill bars, a moon clock,
 star pips, Cinzel for names and spells, Fredoka for numbers).
 
@@ -80,8 +90,13 @@ star pips, Cinzel for names and spells, Fredoka for numbers).
   NEW tag and the long-name layout.
 - **My own rules.** 60 s rounds and best of 3; change them in `RULES` in `main.ts`.
 - **Testing was limited.** I checked it with headless-Chrome captures of the live sim (intro, fight,
-  block, cast, KO) and the type check. Nobody has watched a long session at 60 fps in a real browser,
-  and frame time with the rig running in another tab is unmeasured.
+  block, cast, KO) and the type check. Frame rate in the browser pane, with the rig also running on
+  this laptop:
+  - A small window: a steady 60 fps.
+  - 1920x1080 at 1.5x pixel density: 45 fps (p95 frame 33 ms). The physics kept up both times (0.97x
+    real time), so the cost is pixels.
+  - Screens 1600 px and wider now render at 1x density. I couldn't measure that, because the pane went
+    hidden. Check it on the real TV.
 - **No sound.**
 - **The mockups are not committed.** The three mockup directions in `mockups/` were stopped after their
   first build (no judging or refinement), because you picked this look instead.
