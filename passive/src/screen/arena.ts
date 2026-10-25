@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { REFEREE } from "../core/arena.ts";
 import type { FxLook } from "./fx.ts";
 import type { Stage } from "./stage.ts";
-import { loadForest, nightSky } from "../arena/forest.ts";
+import { loadForest, loadMagicProps, nightSky } from "../arena/forest.ts";
 
 export interface ArenaSet { look: FxLook; update(t: number, dt: number): void }
 
@@ -19,6 +19,7 @@ export function buildForestArena(stage: Stage): ArenaSet {
   floor.receiveShadow = true; // until the forest has loaded
   s.add(floor);
   loadForest().then((g) => { s.add(g); floor.visible = false; }).catch((e) => console.warn("forest not loaded, plain floor:", e));
+  loadMagicProps().then((g) => s.add(g)).catch((e) => console.warn("magic props not loaded:", e));
   stage.hemi.color.setHex(0x8a7ab8);
   stage.hemi.groundColor.setHex(0x34442e);
   stage.hemi.intensity = 0.8;

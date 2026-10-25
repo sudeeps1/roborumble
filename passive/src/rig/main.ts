@@ -20,7 +20,7 @@ import frogUrl from "@elf-assets/frog.glb?url";
 import knightUrl from "@elf-assets/knight.glb?url";
 import sorceressUrl from "@elf-assets/sorceress.glb?url";
 import wizardUrl from "@elf-assets/wizard.glb?url";
-import { loadForest, nightSky } from "../arena/forest.ts";
+import { loadForest, loadMagicProps, nightSky } from "../arena/forest.ts";
 import { loadHumanModel } from "./humanRig.ts";
 import { type Look, View } from "./render.ts";
 
@@ -113,6 +113,7 @@ if (params.get("arena") !== "0") {
     }
     view.scene.add(forest);
     nightSky(view.scene); // the viewer's violet sky, stars and fog
+    loadMagicProps().then((p) => view.scene.add(p)).catch((e) => console.warn("magic props not loaded:", e));
   }).catch((e) => console.warn("forest not loaded:", e));
 }
 view.setLook(startLook);

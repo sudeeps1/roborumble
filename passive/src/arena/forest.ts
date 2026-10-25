@@ -92,3 +92,69 @@ function starField(r: number, n = 2400): THREE.Points {
   pts.renderOrder = -1;
   return pts;
 }
+
+/**
+ * Magic around the forest, from three asset packs in public/props/: the rune-carved standing stones
+ * (magic_stones.fbx) glowing violet back left of the ring, the fairy-land pieces (lanterns, sigil
+ * stone, fountain, fairy house, glowing flowers) scattered outside it, and the windmill with its trees
+ * far back in the fog. Nothing comes within PROP_CLEAR m of the ring's centre. MuJoCo frame (Z up).
+ */
+const PROP_CLEAR = 5.0; // m
+export async function loadMagicProps(): Promise<THREE.Group> {
+  const { FBXLoader } = await import("three/addons/loaders/FBXLoader.js");
+  const tex = new THREE.TextureLoader();
+  const t = (url: string, srgb = true) => { const x = tex.load(url); if (srgb) x.colorSpace = THREE.SRGBColorSpace; return x; };
+  const root = new THREE.Group();
+  root.name = "magic-props";
+  const yup = new THREE.Group(); // the packs are Y up (like arena.glb): this is the forest's own frame
+  yup.rotation.x = Math.PI / 2;
+  root.add(yup);
+  const glowing = (map: THREE.Texture, emissive: THREE.Texture, strength: number) => new THREE.MeshStandardMaterial({
+    map, emissiveMap: emissive, emissive: new THREE.Color(0xffffff), emissiveIntensity: strength, roughness: 0.9, metalness: 0,
+  });
+  const [stones, fairy, mill] = await Promise.all([
+    new FBXLoader().loadAsync("/props/stones/magic_stones.fbx"),
+    new FBXLoader().loadAsync("/props/fairy/Fairyforest.fbx"),
+    new GLTFLoader().loadAsync("/props/windmill/windmill.glb"),
+  ]);
+  // the rune stones: runes glowing, the pack's ground disc dropped
+  const stoneMat = glowing(t("/props/stones/Magic_Stones_BaseColor.png"), t("/props/stones/Magic_Stones_Emission.png"), 1.4);
+  stoneMat.emissive.setHex(0xb48cff); // the runes glow violet
+  stoneMat.normalMap = t("/props/stones/Magic_Stones_Normal.png", false);
+  stones.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if ((Array.isArray(m.material) ? m.material[0] : m.material)?.name === "G") { m.visible = false; return; }
+    m.material = stoneMat; m.castShadow = true; m.receiveShadow = true;
+  });
+  const sb = new THREE.Box3().setFromObject(stones), sc = sb.getCenter(new THREE.Vector3());
+  const ring = new THREE.Group();
+  ring.add(stones);
+  stones.position.set(-sc.x, -sb.min.y, -sc.z);
+  ring.scale.setScalar(0.006); // a 3 m cluster of rune stones, back left of the ring
+  ring.position.set(-5.2, 0, -5.4);
+  yup.add(ring);
+  // the fairy land, centred on the ring: only what stands outside the fight
+  const fairyMat = glowing(t("/props/fairy/T_Fairy_A.png"), t("/props/fairy/T_Fairy_E.png"), 1.6);
+  fairy.scale.setScalar(0.01);
+  fairy.updateMatrixWorld(true);
+  const fb = new THREE.Box3().setFromObject(fairy), fc = fb.getCenter(new THREE.Vector3());
+  fairy.position.set(-fc.x, -fb.min.y - 0.02, -fc.z);
+  fairy.updateMatrixWorld(true);
+  const box = new THREE.Box3(), c = new THREE.Vector3();
+  fairy.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    box.setFromObject(m).getCenter(c);
+    const r = Math.hypot(c.x, c.z), half = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
+    if (r - half < PROP_CLEAR || r > 15) { m.visible = false; return; }
+    m.material = fairyMat; m.castShadow = true;
+  });
+  yup.add(fairy);
+  // the windmill and its trees, far back behind the fighters, in the fog
+  mill.scene.scale.setScalar(0.8);
+  mill.scene.position.set(9, -0.3, -18);
+  mill.scene.rotation.y = -0.6;
+  yup.add(mill.scene);
+  return root;
+}
