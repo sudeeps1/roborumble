@@ -14,10 +14,19 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# The RunPod proxy (https://<pod>-8000.proxy.runpod.net) sits behind Cloudflare, whose browser
+# integrity check refuses urllib's default "Python-urllib/3.x" User-Agent with HTTP 403, error 1010
+# (seen from this agent on 2026-10-25). So every request names the agent, and if Cloudflare refuses
+# that too, the client moves on to curl's form (docs/GPU_ACCESS.md uses curl against this proxy).
+# AGENT_USER_AGENT replaces the list with one User-Agent of your choice.
+USER_AGENTS = [os.environ["AGENT_USER_AGENT"]] if os.environ.get("AGENT_USER_AGENT") else [
+    "Mozilla/5.0 (compatible; InfiniteFighter-LibraryBuilder/1.0)", "curl/8.7.1"]
 
 # The server's quality checks (contract/api.md "POST /generate rules"), in the words the log uses.
 # A check can also be "error: <ExceptionType>: <message>" when Kimodo or the server threw.
@@ -73,26 +82,43 @@ class GameServer:
         # Never send localhost traffic through an HTTP proxy from the environment.
         handlers = [urllib.request.ProxyHandler({})] if host in ("localhost", "127.0.0.1", "::1") else []
         self.opener = urllib.request.build_opener(*handlers)
+        self.ua = 0  # index into USER_AGENTS
+
+    @property
+    def user_agent(self):
+        return USER_AGENTS[self.ua]
 
     def _call(self, method, path, body=None, timeout=None):
-        # RunPod's HTTPS proxy answers 403 to urllib's default "Python-urllib/3.x" user agent.
-        headers = {"Accept": "application/json", "User-Agent": "InfiniteFighterAgent/1.0"}
-        data = None
-        if body is not None:
-            data = json.dumps(body).encode("utf-8")
-            headers["Content-Type"] = "application/json"
-        req = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
-        try:
-            with self.opener.open(req, timeout=timeout or self.timeout) as resp:
-                raw = resp.read()
-        except urllib.error.HTTPError as e:
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        while True:
+            headers = {"Accept": "application/json", "User-Agent": self.user_agent}
+            if data is not None:
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
             try:
-                raw = e.read()
-            except Exception:
-                raw = b""
-            raise ServerHTTPError(e.code, _parse(raw)) from None
-        except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as e:
-            raise ServerDown(f"{method} {self.base}{path}: {getattr(e, 'reason', None) or e}") from None
+                with self.opener.open(req, timeout=timeout or self.timeout) as resp:
+                    raw = resp.read()
+                break
+            except urllib.error.HTTPError as e:
+                try:
+                    raw = e.read()
+                except Exception:
+                    raw = b""
+                if e.code != 403:
+                    raise ServerHTTPError(e.code, _parse(raw)) from None
+                # The game server never answers 403 (contract/api.md); a proxy in front of it does.
+                # The request never reached the server, so it is safe to send again.
+                text = raw.decode("utf-8", "replace")
+                if "1010" in text and self.ua + 1 < len(USER_AGENTS):
+                    self.ua += 1  # Cloudflare refused this User-Agent: try the next one
+                    continue
+                # Unreachable, not a refused spec: back off and keep every spec.
+                why = (f" (Cloudflare error 1010: it refused the User-Agent; tried {', '.join(map(repr, USER_AGENTS))}; "
+                       "set AGENT_USER_AGENT to one it accepts)") if "1010" in text else ""
+                raise ServerDown(f"{method} {self.base}{path}: HTTP 403 from a proxy in front of the server"
+                                 f"{why}: {short(text, 120)}") from None
+            except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as e:
+                raise ServerDown(f"{method} {self.base}{path}: {getattr(e, 'reason', None) or e}") from None
         if not raw.strip():
             return {}
         try:

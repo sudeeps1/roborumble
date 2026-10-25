@@ -74,6 +74,13 @@ cd agent && ./run.sh --help > /dev/null       # first time only: builds .venv
 caffeinate -is ./run_forever.sh --server https://<pod-id>-8000.proxy.runpod.net
 ```
 
+The RunPod proxy is behind Cloudflare, which refuses Python's default User-Agent (HTTP 403,
+"Error 1010: Access denied"). The agent sends its own User-Agent and, if Cloudflare refuses that
+too, curl's. Check the first `SERVER` line in log.txt: it should show the server's health
+(`"engine": "kimodo"`). If it says error 1010, stop the loop and start it again with
+`AGENT_USER_AGENT=<a User-Agent the proxy accepts>`. While the proxy refuses the agent, it only
+backs off: no Claude calls, no specs dropped.
+
 - Watch it: `tail -f log.txt`, or `tmux attach -t agent` (detach with Ctrl-b d).
 - Stop it: `tmux kill-session -t agent`, or Ctrl-C. run.py saves its state first.
 - Load an edited `prompt.py` without stopping the loop: `pkill -f "python.* run.py"`.
@@ -190,7 +197,8 @@ run_forever.sh can always spot a one-shot flag.
 - On start it polls every pending job before submitting anything or asking Claude for more, so
   nothing is submitted twice. Queued specs that were never submitted are submitted after that.
 - **Server down:** exponential backoff (2, 4, 8 s, ... up to 5 min), logged as `SERVER` lines.
-  A 404 on `POST /generate` (no such route, e.g. a proxy in front of a stopped pod) counts as down.
+  A 404 on `POST /generate` (no such route, e.g. a proxy in front of a stopped pod) counts as down,
+  and so does any 403 (the server never sends one; the Cloudflare proxy does).
 - **Claude errors:**
   - refusal: skip to the next theme; two or more in a row also wait (30 s, 60 s, ... up to 5 min);
   - max_tokens (or the context window): retry at half the batch size, which then grows back;

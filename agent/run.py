@@ -946,6 +946,9 @@ class Agent:
         try:
             h = self.server.health()
             self.log("SERVER", f"{self.args.server} health: {short(h, 200)}")
+            if self.server.ua:
+                self.log("INFO", f"the proxy in front of the server refused the first User-Agent (Cloudflare "
+                                 f"error 1010); using {self.server.user_agent!r}")
             if isinstance(h, dict) and h.get("engine") == "mock":
                 self.log("INFO", "this server runs the mock engine: its motions are fake (fine for tests)")
         except (ServerDown, ServerHTTPError) as e:
