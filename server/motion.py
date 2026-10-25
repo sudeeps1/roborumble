@@ -80,8 +80,9 @@ def track(qpos: np.ndarray, joint: str) -> tuple[np.ndarray, np.ndarray, np.ndar
 
 
 def hit_frame(g: Generated, hit_joint: str, kind: str = "melee", effect: str = "") -> int:
-    """The frame the move connects. Punches and projectiles: the limb's fastest push forward. Strikes from
-    above, shockwaves and ground slams: its fastest drop. Anything else: its fastest movement."""
+    """The frame the move connects. Punches and projectiles: when the limb is reaching out in front (90% of
+    its farthest reach), else its fastest push forward. Strikes from above, shockwaves and ground slams: its
+    fastest drop. Anything else: its fastest movement."""
     T = g.qpos.shape[0]
     if T < 3:
         return 0
@@ -90,7 +91,12 @@ def hit_frame(g: Generated, hit_joint: str, kind: str = "melee", effect: str = "
         pts, pel, fwd = tr
         rel = pts - pel
         if kind in ("melee", "projectile"):
-            score = np.diff(rel, axis=0) @ fwd
+            # Not the fastest frame: Kimodo clips often open with a quick swing up from the hip, which put
+            # the hit (and its sparks) at the attacker's hip before the punch was thrown.
+            reach = rel @ fwd
+            if reach.max() - reach[0] > 0.05:
+                return int(np.argmax(reach >= reach[0] + 0.9 * (reach.max() - reach[0])))
+            score = np.diff(rel, axis=0) @ fwd  # barely reaches forward (hooks, elbows): fastest push
         elif kind in ("strike", "shockwave") or effect == "earth_wall":
             score = -np.diff(pts[:, 2])
         else:
