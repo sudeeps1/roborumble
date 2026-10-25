@@ -21,6 +21,8 @@ export interface PlanRequest {
   speed?: number;      // m/s, <= 0 uses the mode's default
   height?: number;     // pelvis height for squat/kneel/lying, < 0 disables
   seed?: number;
+  /** an attack, defense or get-up: served ahead of footwork when the planner is busy */
+  urgent?: boolean;
 }
 
 export interface PlanBackend {

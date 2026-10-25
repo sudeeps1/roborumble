@@ -61,6 +61,25 @@ Keys:
 | `Space` | Pause |
 | `H` | Hide the panels |
 
+### Effects (the game screen's)
+Spells, hits, blocks, dodges, knockdowns and KOs are drawn with the game screen's own effects and
+bloom. `src/fx/` is a copy of `client/src/render/effects.ts` and `client/src/render/fx/` from
+`vaibhav/server` (ba9d58b), changed only where the rig needs it (marked in each file's header).
+`src/fx/adapter.ts` drives them from the arena:
+- `cast` starts a spell's wind-up and schedules its release `hitIn` s later. A spell that fizzles
+  before its hit frame (the caster is hit, falls or is KO'd) cancels what hasn't happened yet.
+- `arena.projectiles()` feeds the orbs in flight. A `hit` gets the game's burst, a blocked hit its
+  shield sparkle, a `whiff` dodge its afterimage.
+- A knockdown or fall raises dust when the pelvis drops below 0.4 m. A KO's fairy dust comes 1.2 s
+  later.
+- The effects run on the sim clock, so Pause and Slow-mo hold them.
+
+The effects are Y-up three.js. They sit under a group turned a quarter turn, and they follow
+invisible per-body stand-ins posed from MuJoCo. Knobs: `BLOOM` in `src/rig/render.ts` (the game
+uses strength 0.85, radius 0.55, threshold 0.62). Tone mapping and exposure stay per look
+(`View.setLook`). The game uses ACES at 1.05, the character look AgX at 1.15, and the other looks
+none, so bright effects there clip a little.
+
 ### Headless checks (Node, no browser)
 - `npm run fight-check`: footwork, each punch, punches into a block and dodges in both hit
   modes, a knockdown with the get-up and its grace period, a KO. It prints a pass/fail line per

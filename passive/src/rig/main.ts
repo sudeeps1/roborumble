@@ -178,9 +178,7 @@ function castSpell(i: number): boolean {
   const s = spells[i];
   if (!s) return false;
   const f = s.spec.kind === "defend" ? arena.fighters[target] : attacker();
-  const ok = f.cast(s.spec, s.qpos, s.fps);
-  if (ok) view.spellCast(f, s.spec);
-  return ok;
+  return f.cast(s.spec, s.qpos, s.fps); // its effects start from the arena's cast event
 }
 if (spells.length) {
   const sel = document.createElement("select");
@@ -239,11 +237,23 @@ group("View and time", boxButton, slow, pause);
 
 const hint = document.createElement("div");
 hint.className = "hint";
-hint.textContent = (plannerUp ? "Planner: on." : "Planner offline: run `npm run planner` and reload for footwork, punches and natural get-ups.") +
+const hintText = (planner: boolean) => (planner ? "Planner: on." : "Planner offline (run `npm run planner`; it attaches by itself when it answers): no footwork, punches or natural get-ups.") +
   (clips.size ? ` Clips: ${clips.size} motions.` : "") +
   ` Spells: ${spells.length}${spellsListed > spells.length ? ` of ${spellsListed} (${spellsListed - spells.length} failed to load)` : ""}.` +
   " Keys: 1-7 hits, J/L jabs, U/O hooks, B block, N duck, arrows slip/step back/jump, T target, K KO, R reset, X hitboxes, Space pause, H hide.";
+hint.textContent = hintText(plannerUp);
 panel.append(hint);
+// a planner that was down or too busy to answer at load (a loaded machine) is attached once it
+// answers, instead of leaving the fighters without footwork or step-ins until a reload
+if (!plannerUp) {
+  const retry = setInterval(async () => {
+    if (!(await planner.alive())) return;
+    clearInterval(retry);
+    sources.push(new PlannerSource(planner));
+    arena.setMotion(new LayeredSource(...sources));
+    hint.textContent = hintText(true);
+  }, 3000);
+}
 panel.hidden = false;
 status.hidden = false;
 logEl.hidden = false;
@@ -275,7 +285,10 @@ addEventListener("keydown", (e) => {
 });
 
 // ---------- loop ----------
-let last = performance.now(), acc = 0, busy = false, tickMs = 0, fpsT = 0, frames = 0, fps = 0, koSince = -1;
+let last = performance.now(), acc = 0, busy = false, tickMs = 0, frames = 0, fps = 0, koSince = -1;
+// how fast the sim really runs (sim s per wall s, over the last second): below real time the machine
+// can't keep up and everything plays in slow motion, which the status line says
+let paceWall = performance.now(), paceSim = 0, pace = 1;
 
 async function physics() {
   busy = true;
@@ -315,10 +328,16 @@ function frame(now: number) {
   view.sync();
   const a = world.rootPos(arena.fighters[0].robot), b = world.rootPos(arena.fighters[1].robot);
   view.render(dt, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
-  frames++; fpsT += dt;
-  if (fpsT > 0.5) { fps = frames / fpsT; frames = 0; fpsT = 0; }
+  frames++;
+  if (now - paceWall > 1000) {
+    const wall = (now - paceWall) / 1000;
+    fps = frames / wall; frames = 0;
+    pace = Math.max(0, (arena.time - paceSim) / wall); // a reset sets the clock back
+    paceWall = now; paceSim = arena.time;
+  }
+  const speed = paused ? "paused" : `${pace.toFixed(2)}x real time${pace < 0.85 * timeScale ? " (can't keep up: slow motion)" : ""}`;
   status.textContent = `${line(arena.fighters[0], 0)}\n\n${line(arena.fighters[1], 1)}\n\n` +
-    `apart ${arena.distance().toFixed(2)} m · sim ${arena.time.toFixed(1)} s · ${fps.toFixed(0)} fps · tick ${tickMs.toFixed(1)} ms · SONIC on ${ep}`;
+    `apart ${arena.distance().toFixed(2)} m · sim ${arena.time.toFixed(1)} s · ${speed} · ${fps.toFixed(0)} fps · tick ${tickMs.toFixed(1)} ms · SONIC on ${ep}`;
 }
 requestAnimationFrame(frame);
 // debug handle for the console (and for tuning): __rig.arena, __rig.view, __rig.spells, __rig.castSpell(i)

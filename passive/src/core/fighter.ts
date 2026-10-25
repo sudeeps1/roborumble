@@ -65,7 +65,7 @@ export const TUNE = {
   crowd: 0.85,        // closer than this: step back right away
   // pelvis distance each punch is thrown from (the punch itself lunges in about 0.1 m)
   punchRange: { "punch.leftJab": 0.66, "punch.rightJab": 0.66, "punch.leftHook": 0.72, "punch.rightHook": 0.72 } as Record<PunchName, number>,
-  approachTime: 2.4,  // s to step in before throwing anyway
+  approachTime: 2.4,  // s of stepping in before throwing anyway (time spent waiting on a late plan does not count)
   punchRecover: 0.35, // s after the strike window before footwork takes over again
   knockdownImpulse: 55, knockdownPush: 30, pulse: 0.08, maxImpulse: 150,
   poiseRegen: 0.2, poiseDelay: 2,  // balance comes back at 0.2/s once 2 s pass without a hit
@@ -122,9 +122,11 @@ interface Pulse { body: number; local: number[]; force: number[]; left: number }
 type Purpose = "footwork" | "approach" | "punch" | "defense" | "stagger" | "getup";
 interface AskOpts { move?: [number, number]; speed?: number; facing?: [number, number]; fromRobot?: boolean; stage?: number; seed?: number }
 interface Inflight { token: number; purpose: Purpose; stage: number; at: number; onFail: () => void }
-interface Punch { name: PunchName; power: number; phase: "approach" | "throw"; stepping: boolean; approachT: number }
+/** Stepping in before an attack: s spent stepping, s spent standing waiting for a step plan, whether a step was asked for. */
+interface Approach { approachT: number; waitT: number; stepping: boolean }
+interface Punch extends Approach { name: PunchName; power: number; phase: "approach" | "throw" }
 /** A spell or other server move (spells.ts): its clip, when it hits, and (melee) its step-in. */
-interface Spell { spec: NonNullable<ReturnType<typeof checkSpec>>; frames: Frame[]; hitT: number; phase: "approach" | "cast"; stepping: boolean; approachT: number; gap: number }
+interface Spell extends Approach { spec: NonNullable<ReturnType<typeof checkSpec>>; frames: Frame[]; hitT: number; phase: "approach" | "cast"; gap: number }
 interface Move { name: string; endT: number; punch: Punch | null; spell?: Spell | null }
 
 const freshRise = () => ({ stage: 0, stageT: 0, tries: 0, fails: 0, failed: false, assist: 0, cap: 0, startT: 0 });
@@ -306,7 +308,7 @@ export class Fighter {
     this.gen++; this.inflight = null; // the footwork step that was coming is out of date
     this.setStance("move");
     this.attackSerial++;
-    this.move = { name, endT: this.clock() + LIMITS.move - 0.5, punch: { name, power: Math.min(power, 3), phase: "approach", stepping: false, approachT: 0 } };
+    this.move = { name, endT: this.clock() + LIMITS.move - 0.5, punch: { name, power: Math.min(power, 3), phase: "approach", stepping: false, approachT: 0, waitT: 0 } };
     this.intent = `stepping in: ${name.slice(6)}`;
     this.emit({ type: "move", who: this.index, name });
     return true;
@@ -364,7 +366,7 @@ export class Fighter {
     this.effects = this.effects.filter((e) => e.tag !== "defense");
     this.setStance("move");
     this.attackSerial++;
-    const spell: Spell = { spec, frames, hitT, phase: spec.kind === "melee" ? "approach" : "cast", stepping: false, approachT: 0, gap: SPELL.meleeGap + lunge };
+    const spell: Spell = { spec, frames, hitT, phase: spec.kind === "melee" ? "approach" : "cast", stepping: false, approachT: 0, waitT: 0, gap: SPELL.meleeGap + lunge };
     this.move = { name: spec.name, endT: this.clock() + LIMITS.move - 0.5, punch: null, spell };
     if (spell.phase === "cast") this.castNow(this.move, spell);
     else this.intent = `stepping in: ${spec.name}`;
@@ -384,6 +386,8 @@ export class Fighter {
     this.combat.cast(this, this.opponent, sp.spec, t0 + sp.hitT, [o[0], o[1]]);
     mv.endT = t0 + (sp.frames.length - 1) / REF_HZ + 0.1;
     this.intent = `${sp.spec.kind === "defend" ? "raising" : "casting"} ${sp.spec.name}`;
+    const s = sp.spec;
+    this.emit({ type: "cast", who: this.index, name: s.name, kind: s.kind, spellType: s.type, effect: s.effect, power: s.power, hitIn: Math.max(0, t0 + sp.hitT - this.clock()), target: [o[0], o[1], o[2]] });
   }
 
   /**
@@ -800,7 +804,7 @@ export class Fighter {
     const token = ++this.reqToken, gen = this.gen;
     this.inflight = { token, purpose, stage, at: this.clock(), onFail: fail };
     this.seed = (this.seed * 48271) % 2147483647;
-    const msg: MotionAsk = { name, context, contextFrame, startFrame: this.ref.now + 2, facing: opts.facing ?? this.facingOpponent(), move: opts.move, speed: opts.speed, seed: opts.seed ?? this.seed };
+    const msg: MotionAsk = { name, context, contextFrame, startFrame: this.ref.now + 2, facing: opts.facing ?? this.facingOpponent(), move: opts.move, speed: opts.speed, seed: opts.seed ?? this.seed, urgent: purpose !== "footwork" };
     const current = () => gen === this.gen && this.inflight?.token === token;
     let p: Promise<MotionClip | null>;
     try { p = Promise.resolve(this.motion.get(msg)); } catch (e) { p = Promise.reject(e); }
@@ -942,15 +946,8 @@ export class Fighter {
     const sp = mv.spell;
     if (sp && sp.phase === "approach") {
       if (!this.opponent.standing()) { this.intent = "opponent down"; this.toIdle("interrupted"); return; }
-      sp.approachT += dt;
-      const ready = this.distanceTo(this.opponent) <= sp.gap && this.closingSpeed() > -0.15;
-      if (!ready && sp.approachT < TUNE.approachTime) {
-        if (!this.inflight && (!sp.stepping || this.ref.remaining < 20)) {
-          sp.stepping = true;
-          this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 });
-        }
-        return;
-      }
+      // the whole approach leaves the clip its full length inside the move's time limit
+      if (this.stepIn(sp, dt, sp.gap, LIMITS.move - 0.5 - (sp.frames.length - 1) / REF_HZ)) return;
       this.castNow(mv, sp);
       return;
     }
@@ -958,20 +955,30 @@ export class Fighter {
     const pu = mv.punch;
     if (pu && pu.phase === "approach") {
       if (!this.opponent.standing()) { this.intent = "opponent down"; this.toIdle("interrupted"); return; }
-      pu.approachT += dt;
-      // in range and not drifting apart (a punch thrown while separating falls short)
-      const ready = this.distanceTo(this.opponent) <= TUNE.punchRange[pu.name] && this.closingSpeed() > -0.15;
-      if (!ready && pu.approachT < TUNE.approachTime) {
-        if (!this.inflight && (!pu.stepping || this.ref.remaining < 20)) {
-          pu.stepping = true;
-          this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 });
-        }
-        return;
-      }
+      // the whole approach leaves the punch's plan (up to 3 s, throwNow) room inside the move's time limit
+      if (this.stepIn(pu, dt, TUNE.punchRange[pu.name], LIMITS.move - 3.5)) return;
       this.throwNow(mv, pu);
       return;
     }
     if (this.clock() > mv.endT) this.toIdle();
+  }
+
+  /**
+   * One tick of stepping in before a punch or a melee spell: true while still on the way, false once
+   * within `range` (and not drifting apart: an attack started while separating falls short), out of
+   * patience (TUNE.approachTime of actual stepping) or past `maxT` all told. Standing still waiting
+   * for a late step plan (a busy planner) doesn't use up the patience. The next step is asked for
+   * 0.6 s before the current one runs out, so a plan that takes a few hundred ms arrives in time.
+   */
+  private stepIn(a: Approach, dt: number, range: number, maxT: number): boolean {
+    if (this.inflight && this.ref.remaining === 0) a.waitT += dt; else a.approachT += dt;
+    const ready = this.distanceTo(this.opponent) <= range && this.closingSpeed() > -0.15;
+    if (ready || a.approachT >= TUNE.approachTime || a.approachT + a.waitT >= maxT) return false;
+    if (!this.inflight && (!a.stepping || this.ref.remaining < 30)) {
+      a.stepping = true;
+      this.ask("step", "approach", { move: this.facingOpponent(), speed: 0.85 });
+    }
+    return true;
   }
 
   /** In range (or out of patience): plan the punch and arm its strike when the plan arrives. */

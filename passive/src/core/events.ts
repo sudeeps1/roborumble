@@ -9,6 +9,7 @@ export type ArenaEvent =
   // stance: the defender's stance when it landed (the reaction comes after: see the events that follow)
   // how/type/effect/clean: set for spells and other server moves (spells.ts)
   | { type: "hit"; attacker: Who | null; defender: Who; name: string; zone: Zone; point: number[]; dir: number[]; impulse: number; damage: number; hp: number; blocked: boolean; counter: boolean; knockdown: boolean; stance: string; how?: string; spellType?: string; effect?: string; clean?: boolean }
+  | { type: "cast"; who: Who; name: string; kind: string; spellType: string; effect: string; power: number; hitIn: number; target: number[] } // a spell's clip starts (after any step-in): it is released hitIn s from now; target: where the defender stands
   | { type: "release"; who: Who; name: string; kind: string; spellType: string; effect: string; point: number[] } // a spell leaves its caster at its hit frame
   | { type: "whiff"; attacker: Who; name: string; reason: WhiffReason; closest: number } // closest: m it missed by (below 0: touched, too slow to hurt)
   | { type: "stagger"; who: Who; level: number }

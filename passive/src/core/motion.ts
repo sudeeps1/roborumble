@@ -40,6 +40,8 @@ export interface MotionAsk {
   move?: [number, number];
   speed?: number;
   seed?: number;
+  /** plan ahead of footwork (attacks, defenses, get-ups); the planner serves these first */
+  urgent?: boolean;
 }
 
 export interface MotionClip {
@@ -103,7 +105,7 @@ export class PlannerSource implements MotionSource {
       case "dodge.left": case "dodge.right": case "dodge.back": mode = Mode.walkBoxing; speed = ask.speed ?? 0.9; break;
       default: return null; // block, duck and jump are acted out with overlays
     }
-    const flat = await this.backend.plan({ context: ask.context, mode, movement, facing: f, speed, height, seed: ask.seed });
+    const flat = await this.backend.plan({ context: ask.context, mode, movement, facing: f, speed, height, seed: ask.seed, urgent: ask.urgent });
     const frames = planFrames(flat);
     if (!frames.length) return null;
     return { frames, at: ask.contextFrame, strikes: defaultStrikes(ask.name), source: "planner" };

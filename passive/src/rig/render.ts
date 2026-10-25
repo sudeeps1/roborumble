@@ -1,16 +1,22 @@
 // three.js view of the MuJoCo world. Works in MuJoCo coordinates (Z up, meters).
-// Draws the robots' visual meshes (geom group 1) straight from the compiled model.
+// Draws the robots' visual meshes (geom group 1) straight from the compiled model. Spells, hits, dodges,
+// knockdowns and KOs get the game screen's effects (../fx), and the frame gets the game's bloom.
 import { CharacterView } from "@elf/character.ts";
 import { makeStudioEnvironment } from "@elf/studio.ts";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { LIMBS, type Limb, type Volume } from "../core/body.ts";
 import type { Combat } from "../core/combat.ts";
 import type { ArenaEvent } from "../core/events.ts";
 import type { Fighter } from "../core/fighter.ts";
 import { RING_RADIUS } from "../core/scene.ts";
-import type { MoveSpec } from "../core/spells.ts";
 import type { RobotHandle, World } from "../core/world.ts";
+import { GameFx, type ShotView } from "../fx/adapter.ts";
 import { Human, type HumanLook } from "./human.ts";
 import { RiggedHuman } from "./humanRig.ts";
 
@@ -20,40 +26,25 @@ interface Flash { mesh: THREE.Mesh; arrow: THREE.ArrowHelper; age: number }
 interface Box { fighter: Fighter; vol?: Volume; limb?: Limb; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }
 
 const ZONE_COLOR = { head: 0xff4d4d, torso: 0xffa94d, legs: 0xffe14d } as const;
-
-// ---- spell effects: what the physics is doing (spells.ts), coloured by the spell's type ----
-const SPELL_COLOR: Record<string, number> = { fire: 0xff7a1f, ice: 0x5ff0ff, lightning: 0xfff2a0, shadow: 0xa457ff, physical: 0xd2b48c };
-const spellColor = (type: string | undefined) => SPELL_COLOR[type ?? ""] ?? SPELL_COLOR.physical;
-const STONE = 0x9a8670; // warm grey-brown; the studio's cool rims would turn a neutral grey blue
-const WHITE = new THREE.Color(0xffffff);
-const FX = {
-  shotR: 0.09,     // m, projectile core
-  columnH: 3.2,    // m, a strike's light column
-  columnLife: 0.7, // s
-  wall: [0.15, 1.2, 1.0] as const, // m: thick (toward the opponent), wide, tall
-  wallAhead: 0.45, // m in front of the caster's pelvis
-  wallLife: 1.2,   // s from release
-  wallRise: 0.15,  // s to come up out of the floor
-  wallFade: 0.3,   // s at the end
-  orbLife: 6,      // s at most on the hand (it goes at release, or when the move ends)
-  ringLife: 0.45,  // s for a shockwave ring to reach its radius
-  ringR: 1.5,      // m, the shockwave's reach (SPELL.shockwaveRadius)
-};
-const glowMat = (opacity: number, wireframe = false) =>
-  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity, wireframe, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-
-/** A projectile in flight (Arena.projectiles()): where, in MuJoCo world coordinates, and its type. */
-export interface ShotView { pos: ArrayLike<number>; type: string }
-interface Shot { core: THREE.Mesh; halo: THREE.Mesh; type: string }
-interface Column { obj: THREE.Group; mats: THREE.MeshBasicMaterial[]; t0: number }
-interface Wall { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; t0: number }
-interface Orb { obj: THREE.Group; mats: THREE.MeshBasicMaterial[]; shells: THREE.Object3D[]; fighter: Fighter | null; limb: Limb; t0: number }
+/**
+ * The game screen's bloom (client/src/render/stage.ts on vaibhav/server). It reads the scene before tone
+ * mapping, so the threshold is in linear light: the effects' HDR colours (2..5) clear it easily; a brightly
+ * lit surface can just reach it (raise the threshold if the characters start to glow). Its first level is
+ * at half the drawing buffer's resolution (UnrealBloomPass does that itself).
+ */
+export const BLOOM = { strength: 0.85, radius: 0.55, threshold: 0.62 };
 
 export class View {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
+  /** Render -> bloom -> tone mapping and sRGB (the renderer's, so each look keeps its own) -> SMAA. */
+  readonly composer: EffectComposer;
+  readonly bloom: UnrealBloomPass;
+  /** The game screen's effects, driven by the arena (spellEvent, trackSpells). */
+  readonly fx: GameFx;
+  private shakeOff = new THREE.Vector3();
   private geoms: { id: number; obj: THREE.Mesh }[] = [];
   private m4 = new THREE.Matrix4();
   private flashes: Flash[] = [];
@@ -73,23 +64,12 @@ export class View {
   private hitboxes: { combat: Combat; time: () => number } | null = null;
   private va = [0, 0, 0]; private vb = [0, 0, 0];
   private up = new THREE.Vector3(0, 1, 0); private dv = new THREE.Vector3();
-  // spells: projectiles (a pool that only grows), and per fighter a strike column (by defender), a wall and a hand orb (by caster)
-  private spellFeed: { projectiles: () => readonly ShotView[]; time: () => number } | null = null;
-  private shots: Shot[] = [];
-  private shotMats = new Map<string, [THREE.MeshBasicMaterial, THREE.MeshBasicMaterial]>();
-  private shotGeo = new THREE.SphereGeometry(FX.shotR, 16, 12);
-  private haloGeo = new THREE.SphereGeometry(FX.shotR * 1.8, 16, 12);
-  private columns: Column[] = [];
-  /** A shockwave's ring sweeping out along the floor from its caster. */
-  private rings: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; t0: number }[] = [];
-  private walls: Wall[] = [];
-  private orbs: Orb[] = [];
-  private tint = new THREE.Color();
 
   /** humanModel: the rigged glTF from scripts/rig_human.py; without it the humans are mannequins. */
   constructor(container: HTMLElement, world: World, tints: number[], looks: HumanLook[], humanModel: THREE.Object3D | null = null) {
     this.world = world;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // no MSAA on the canvas: everything goes through the composer, and SMAA at its end does the edges
+    this.renderer = new THREE.WebGLRenderer({ antialias: false });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.shadowMap.enabled = true;
@@ -142,11 +122,22 @@ export class View {
       return { group: h.root, sync: () => h.sync() };
     });
     for (const h of this.humans) this.scene.add(h.group);
-    this.buildSpellFx();
+    this.fx = new GameFx(world, tints);
+    this.scene.add(this.fx.root);
+
+    // the game screen's post (stage.ts there), with the game's bloom numbers (BLOOM). Tone mapping happens
+    // in the OutputPass, after the bloom, with whatever setLook put on the renderer.
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+    this.composer.addPass(new SMAAPass());
     addEventListener("resize", () => {
       this.camera.aspect = innerWidth / innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(innerWidth, innerHeight);
+      this.composer.setSize(innerWidth, innerHeight);
     });
   }
 
@@ -376,7 +367,6 @@ export class View {
   sync() {
     for (const h of this.humans) h.sync();
     this.syncHitboxes();
-    if (this.spellFeed) this.setProjectiles(this.spellFeed.projectiles(), this.spellFeed.time());
     const d = this.world.data, p = d.geom_xpos, R = d.geom_xmat;
     for (const { id, obj } of this.geoms) {
       const o = id * 9, t = id * 3;
@@ -407,176 +397,22 @@ export class View {
     });
   }
 
-  // ---------------------------------------------------------------- spells
-
-  private buildSpellFx() {
-    const colCore = new THREE.CylinderGeometry(0.035, 0.035, FX.columnH, 10, 1, true).rotateX(Math.PI / 2); // along Z
-    const colGlow = new THREE.CylinderGeometry(0.16, 0.16, FX.columnH, 16, 1, true).rotateX(Math.PI / 2);
-    const wallGeo = new THREE.BoxGeometry(FX.wall[0], FX.wall[1], FX.wall[2]).translate(0, 0, FX.wall[2] / 2); // stands on z = 0
-    const orbCore = new THREE.SphereGeometry(0.045, 16, 12), orbShell = new THREE.IcosahedronGeometry(0.085, 1);
-    const orbShell2 = new THREE.IcosahedronGeometry(0.07, 0), orbHalo = new THREE.SphereGeometry(0.12, 16, 12);
-    const ringGeo = new THREE.RingGeometry(0.85, 1, 64); // scaled up to FX.ringR as it sweeps out
-    for (let i = 0; i < this.world.robots.length; i++) {
-      const rm = glowMat(0.8);
-      rm.side = THREE.DoubleSide;
-      const ring = new THREE.Mesh(ringGeo, rm);
-      ring.visible = false;
-      this.scene.add(ring);
-      this.rings.push({ mesh: ring, mat: rm, t0: 0 });
-      const cm = [glowMat(1), glowMat(0.35)];
-      const col = new THREE.Group();
-      col.add(new THREE.Mesh(colCore, cm[0]), new THREE.Mesh(colGlow, cm[1]));
-      this.columns.push({ obj: col, mats: cm, t0: 0 });
-      const wm = new THREE.MeshStandardMaterial({ color: STONE, emissive: 0x1e170f, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.8, depthWrite: false });
-      const wall = new THREE.Mesh(wallGeo, wm);
-      this.walls.push({ mesh: wall, mat: wm, t0: 0 });
-      const om = [new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), glowMat(0.9, true), glowMat(0.7, true), glowMat(0.3)];
-      const shells = [new THREE.Mesh(orbShell, om[1]), new THREE.Mesh(orbShell2, om[2])];
-      const orb = new THREE.Group();
-      orb.add(new THREE.Mesh(orbCore, om[0]), ...shells, new THREE.Mesh(orbHalo, om[3]));
-      this.orbs.push({ obj: orb, mats: om, shells, fighter: null, limb: "r_hand", t0: 0 });
-      for (const o of [col, wall, orb]) { o.visible = false; this.scene.add(o); }
-    }
-  }
+  // ---------------------------------------------------------------- spells and hits: the game's effects
 
   /**
-   * Where the spells come from: the projectiles in flight (Arena.projectiles()) and the sim clock.
-   * sync() draws the projectiles; the other effects age in sim time, so pause and slow-mo hold them.
+   * Where the spells come from: the projectiles in flight (Arena.projectiles()) and the sim clock. The
+   * effects run on the sim clock, so pause and slow-mo hold them with the fight.
    */
-  trackSpells(projectiles: () => readonly ShotView[], time: () => number) { this.spellFeed = { projectiles, time }; }
+  trackSpells(projectiles: () => readonly ShotView[], time: () => number) { this.fx.track(projectiles, time); }
 
-  private simTime() { return this.spellFeed ? this.spellFeed.time() : performance.now() / 1000; }
-
-  /** Projectiles in flight this frame: glowing spheres coloured by type (pooled: nothing allocated per frame). */
-  setProjectiles(list: readonly ShotView[], time = 0) {
-    for (let i = 0; i < list.length; i++) {
-      const p = list[i];
-      let s = this.shots[i];
-      if (!s) {
-        const core = new THREE.Mesh(this.shotGeo), halo = new THREE.Mesh(this.haloGeo);
-        core.add(halo);
-        this.scene.add(core);
-        s = this.shots[i] = { core, halo, type: "" };
-      }
-      if (s.type !== p.type) {
-        let m = this.shotMats.get(p.type);
-        if (!m) {
-          const c = spellColor(p.type);
-          m = [new THREE.MeshBasicMaterial({ color: new THREE.Color(c).lerp(WHITE, 0.55), toneMapped: false }), glowMat(0.5)];
-          m[1].color.setHex(c);
-          this.shotMats.set(p.type, m);
-        }
-        s.core.material = m[0]; s.halo.material = m[1]; s.type = p.type;
-      }
-      s.core.position.set(p.pos[0], p.pos[1], p.pos[2]);
-      s.halo.scale.setScalar(1 + 0.2 * Math.sin(time * 37 + i * 2.1));
-      s.core.visible = true;
-    }
-    for (let i = list.length; i < this.shots.length; i++) this.shots[i].core.visible = false;
-  }
-
-  /** A spell started (Fighter.cast said yes). A melee spiral orb glows on its hit hand until it's released. */
-  spellCast(f: Fighter, spec: MoveSpec) {
-    const o = this.orbs[f.index];
-    if (!o || spec.kind !== "melee" || spec.effect !== "spiral_orb") return;
-    const c = spellColor(spec.type);
-    o.mats[0].color.setHex(c).lerp(WHITE, 0.6);
-    for (let k = 1; k < o.mats.length; k++) o.mats[k].color.setHex(c);
-    o.fighter = f;
-    o.limb = spec.hitJoint && f.body.strikers[spec.hitJoint] ? spec.hitJoint : "r_hand";
-    o.t0 = this.simTime();
-    o.obj.visible = true;
-    this.placeOrb(o, 0);
-  }
-
-  /** Spell effects from the arena's events (call it for every event): strike columns, walls; a release ends a hand orb. */
-  spellEvent(e: ArenaEvent) {
-    if (e.type === "reset") { this.clearSpellFx(); return; }
-    if (e.type === "spawn") { this.orbs[e.who].obj.visible = false; return; }
-    if (e.type !== "release") return;
-    const me = e.who, other = 1 - e.who, robots = this.world.robots;
-    this.orbs[me].obj.visible = false; // it left the hand
-    if (e.kind === "strike") {
-      // called down on the defender: a light column where they stand (it lands strikeDelay later)
-      const c = this.columns[other], p = this.world.rootPos(robots[other], this.va);
-      c.obj.position.set(p[0], p[1], FX.columnH / 2);
-      for (const m of c.mats) m.color.setHex(spellColor(e.spellType));
-      c.t0 = this.simTime();
-      c.obj.visible = true;
-    } else if (e.kind === "shockwave") {
-      // a ring sweeping out along the floor from the caster to the shockwave's reach
-      const r = this.rings[me], p = this.world.rootPos(robots[me], this.va);
-      r.mesh.position.set(p[0], p[1], 0.02);
-      r.mat.color.setHex(spellColor(e.spellType));
-      r.t0 = this.simTime();
-      r.mesh.scale.setScalar(0.1);
-      r.mesh.visible = true;
-    } else if (e.kind === "defend") {
-      // a wall rises in front of the caster, facing the opponent (stone; other types tint it)
-      const w = this.walls[me], a = this.world.rootPos(robots[me], this.va), b = this.world.rootPos(robots[other], this.vb);
-      let fx = b[0] - a[0], fy = b[1] - a[1];
-      const n = Math.hypot(fx, fy) || 1;
-      fx /= n; fy /= n;
-      w.mesh.position.set(a[0] + FX.wallAhead * fx, a[1] + FX.wallAhead * fy, 0);
-      w.mesh.rotation.set(0, 0, Math.atan2(fy, fx));
-      w.mat.color.setHex(STONE);
-      if (e.spellType !== "physical" && SPELL_COLOR[e.spellType]) w.mat.color.lerp(this.tint.setHex(SPELL_COLOR[e.spellType]), 0.5);
-      w.t0 = this.simTime();
-      w.mesh.scale.z = 0.01;
-      w.mesh.visible = true;
-    }
-  }
-
-  private clearSpellFx() {
-    for (const c of this.columns) c.obj.visible = false;
-    for (const r of this.rings) r.mesh.visible = false;
-    for (const w of this.walls) w.mesh.visible = false;
-    for (const o of this.orbs) { o.obj.visible = false; o.fighter = null; }
-  }
-
-  private placeOrb(o: Orb, age: number) {
-    const s = o.fighter!.body.strikers[o.limb];
-    const p = this.world.pointOn(s.body, s.local, this.va);
-    o.obj.position.set(p[0], p[1], p[2]);
-    o.shells[0].rotation.set(age * 7, age * 11, age * 3);
-    o.shells[1].rotation.set(-age * 9, age * 4, -age * 13);
-    o.obj.scale.setScalar(Math.min(1, 0.3 + age * 3)); // grows in over a quarter second
-  }
-
-  private stepSpellFx() {
-    const now = this.simTime();
-    for (const c of this.columns) {
-      if (!c.obj.visible) continue;
-      const k = 1 - (now - c.t0) / FX.columnLife;
-      if (k <= 0 || k > 1) { c.obj.visible = false; continue; }
-      c.mats[0].opacity = k; c.mats[1].opacity = 0.35 * k;
-      c.obj.scale.set(0.5 + 0.5 * k, 0.5 + 0.5 * k, 1);
-    }
-    for (const r of this.rings) {
-      if (!r.mesh.visible) continue;
-      const k = (now - r.t0) / FX.ringLife;
-      if (k > 1 || k < 0) { r.mesh.visible = false; continue; }
-      r.mesh.scale.setScalar(Math.max(0.1, FX.ringR * k));
-      r.mat.opacity = 0.8 * (1 - k);
-    }
-    for (const w of this.walls) {
-      if (!w.mesh.visible) continue;
-      const age = now - w.t0;
-      if (age > FX.wallLife || age < 0) { w.mesh.visible = false; continue; }
-      w.mesh.scale.z = Math.max(0.01, Math.min(1, age / FX.wallRise));
-      w.mat.opacity = 0.8 * Math.min(1, (FX.wallLife - age) / FX.wallFade);
-    }
-    for (const o of this.orbs) {
-      if (!o.obj.visible) continue;
-      const age = now - o.t0;
-      if (!o.fighter || o.fighter.stance !== "move" || age > FX.orbLife || age < 0) { o.obj.visible = false; continue; }
-      this.placeOrb(o, age);
-    }
-  }
+  /**
+   * The game's effects for the arena's events (call it for every event): a cast's wind-up and release,
+   * hits, blocks, dodges, knockdowns, KOs. A spell that fizzles before its hit frame takes its effects along.
+   */
+  spellEvent(e: ArenaEvent) { this.fx.event(e); }
 
   render(dt: number, focus?: ArrayLike<number>) {
     this.syncCharacters(dt);
-    this.stepSpellFx();
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i];
       f.age += dt;
@@ -594,6 +430,13 @@ export class View {
       t.x += (focus[0] - t.x) * k; t.y += (focus[1] - t.y) * k;
     }
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.fx.update(dt, this.camera);
+    // the game's screen shake: this frame only, across the screen, so the orbit controls never see it
+    const s = this.fx.shake;
+    if (s > 0.0005) this.shakeOff.set((Math.random() - 0.5) * 2 * s, (Math.random() - 0.5) * 2 * s, 0).applyQuaternion(this.camera.quaternion);
+    else this.shakeOff.set(0, 0, 0);
+    this.camera.position.add(this.shakeOff);
+    this.composer.render(dt);
+    this.camera.position.sub(this.shakeOff);
   }
 }
