@@ -5,7 +5,11 @@ import type { Stage } from "../stage";
 import { FOG, LIGHT, MOON_DIR, SHROOM_COLORS, SKY } from "./palette";
 import { hdr } from "./util";
 
-export interface ArenaLights { key: THREE.DirectionalLight; rim: THREE.DirectionalLight; hemi: THREE.HemisphereLight; }
+export interface ArenaLights {
+  key: THREE.DirectionalLight; rim: THREE.DirectionalLight; hemi: THREE.HemisphereLight;
+  /** Bakes the environment map again (its render target is empty after a WebGL context loss). */
+  rebuildEnv(): void;
+}
 
 export function buildLights(stage: Stage, root: THREE.Object3D): ArenaLights {
   const scene = stage.scene;
@@ -36,7 +40,11 @@ export function buildLights(stage: Stage, root: THREE.Object3D): ArenaLights {
 
   scene.environment = envMap(stage.renderer);
   scene.environmentIntensity = LIGHT.env;
-  return { key, rim, hemi };
+  const rebuildEnv = () => {
+    scene.environment?.dispose();
+    scene.environment = envMap(stage.renderer);
+  };
+  return { key, rim, hemi, rebuildEnv };
 }
 
 /** Bakes a tiny moonlit world into a PMREM once: sky gradient, moon, the key's soft glow, the ring's colored band. */

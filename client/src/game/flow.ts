@@ -2,7 +2,7 @@
 // Turns room messages into sim calls. Never computes damage or physics; the sim does (CLAUDE.md).
 import { CHARACTERS, DEFAULT_CHARACTERS, POLL_MS, ROUNDS_TO_WIN, ROUND_SECONDS, STATE_PUSH_MS, STATS_POLL_MS, characterById, type CharacterId } from "../config";
 import type { GameEvent, LeaderboardEntry, LibraryStats, Motion, Move, MoveSpec, Player, RoomIn, Sim, SimEvent, StateMsg } from "../contract";
-import type { Api } from "../net/api";
+import { httpStatus, type Api } from "../net/api";
 import type { Room } from "../net/room";
 
 export type Phase = "loading" | "lobby" | "intro" | "fight" | "roundEnd" | "matchEnd";
@@ -27,11 +27,16 @@ export interface FlowHooks {
 }
 
 const INTRO_MS = 1800;      // "Round N" banner before inputs count
-const KO_TO_ROUND_MS = 2600; // let the real fall play out before the round ends
+const KO_TO_ROUND_MS = 3200; // let the real fall (in slow motion) and the K.O. title play out before the round ends
 const ROUND_END_MS = 3000;
 const JOB_TIMEOUT_MS = 30000;
+const WILD_WAIT_S = 8;       // a finished wildcard waits this long (fight time) for its caster to be able to cast it
+const PUSH_GRACE_MS = 2500;  // the poll saw "rejected": the server's `ready` push brings a fallback move, give it time
 
 export const other = (p: Player): Player => (p === 1 ? 2 : 1);
+
+/** A live wildcard that finished while its caster couldn't cast it (down, stunned, busy, between rounds). */
+interface PendingWild { move: MoveSpec; motion: Motion; loudness?: number; left: number; }
 
 export class Flow {
   phase: Phase = "loading";
@@ -44,10 +49,15 @@ export class Flow {
   private idle: Motion | null = null;
   private simCharacters = "";
   private roundOver = false;
-  private gen = 0; // bumped on every round/match change so late async work is dropped
+  private koPending = false; // a KO landed and the round is about to end: wildcards wait for the next round
+  private koAt = 0;
+  private simRoundSent = false; // the sim's own `round` event already went to the phones this round
+  private gen = 0;   // bumped on every round/match change so late async work is dropped
+  private match = 0; // bumped on every match change only: a finished wildcard survives a round break
   private lastPush = 0;
   private charging = new Map<Player, string>(); // player -> job id
   private doneJobs = new Set<string>();          // jobs already played (the push and the poll can both arrive)
+  private wild: Record<Player, PendingWild | null> = { 1: null, 2: null };
   private lastTick = -1;
 
   constructor(private sim: Sim, private api: Api, private room: Room, private hooks: FlowHooks) {
@@ -94,8 +104,17 @@ export class Flow {
     if (this.phase !== "lobby" && this.phase !== "matchEnd") return;
     if (!this.canStart()) return this.hooks.toast("Waiting for two players to join");
     this.gen++;
+    this.match++;
+    this.wild = { 1: null, 2: null };
     if (this.needsInit()) this.setPhase("loading");
-    await this.ensureSim();
+    try {
+      await this.ensureSim();
+    } catch (e) {
+      console.error("sim.init failed", e);
+      this.hooks.toast(`The fight couldn't start: ${(e as Error)?.message ?? e}. Press Enter to try again.`);
+      this.setPhase("lobby");
+      return;
+    }
     this.wins = { 1: 0, 2: 0 };
     this.round = 0;
     this.event({ kind: "round_start", round: 1 });
@@ -106,9 +125,14 @@ export class Flow {
     if (this.phase === "matchEnd") void this.startMatch();
   }
 
+  /** Back to the lobby (Esc), from a fight too. The room and the seats stay. */
   toLobby() {
+    if (this.phase === "lobby" || this.phase === "loading") return;
     this.gen++;
+    this.match++;
+    this.wild = { 1: null, 2: null };
     this.stopCharging();
+    if (this.simReady) this.sim.reset(); // stand both fighters back up behind the lobby
     this.setPhase("lobby");
   }
 
@@ -117,6 +141,8 @@ export class Flow {
     const gen = ++this.gen;
     this.round++;
     this.roundOver = false;
+    this.koPending = false;
+    this.simRoundSent = false;
     this.timer = ROUND_SECONDS;
     this.lastTick = -1;
     this.stopCharging();
@@ -136,6 +162,9 @@ export class Flow {
     this.roundOver = true;
     const gen = ++this.gen;
     if (winner) this.wins[winner]++;
+    // A sim `round` was already relayed; when this screen ends the round (time up, or a KO the sim never
+    // followed with `round`), tell the phones and the narrator who took it.
+    if (winner && reason !== "sim" && !this.simRoundSent) this.event({ kind: "round", winner });
     this.stopCharging();
     this.setPhase("roundEnd");
     this.hooks.roundEnd(winner, reason, this.wins);
@@ -157,6 +186,9 @@ export class Flow {
       if (this.timer <= 0) {
         const h1 = this.sim.state(1).hp, h2 = this.sim.state(2).hp;
         this.endRound(h1 === h2 ? null : h1 > h2 ? 1 : 2, "time");
+      } else if (!this.koPending) {
+        this.tryWild(1, dt);
+        this.tryWild(2, dt);
       }
     }
     if (this.simReady && this.phase !== "lobby" && this.phase !== "loading" && now - this.lastPush >= STATE_PUSH_MS) {
@@ -181,8 +213,10 @@ export class Flow {
         if (!p) return this.hooks.toast("The room is full");
         const prev = this.seats[p];
         const character = CHARACTERS.some((c) => c.id === m.character) ? (m.character as CharacterId) : prev?.character ?? DEFAULT_CHARACTERS[p];
-        this.seats[p] = { nickname: (m.nickname || prev?.nickname || `Player ${p}`).slice(0, 24), character, connected: true };
-        this.hooks.seats(this.seats, p);
+        const nickname = Array.from(String(m.nickname || prev?.nickname || `Player ${p}`)).slice(0, 24).join(""); // never split an emoji
+        this.seats[p] = { nickname, character, connected: true };
+        // The server re-sends every seat when this screen reconnects: only a real arrival gets the join chime.
+        this.hooks.seats(this.seats, !prev || !prev.connected || prev.nickname !== nickname ? p : null);
         break;
       }
       case "leave": {
@@ -205,7 +239,7 @@ export class Flow {
       case "ready": {
         const p = m.player ?? [...this.charging].find(([, job]) => job === m.job)?.[0];
         if (!p) return;
-        this.finishJob(p, m.job, m.move, m.motion, m.loudness);
+        void this.finishJob(p, m.job, m.move, m.motion, m.loudness);
         break;
       }
       case "narrate":
@@ -225,6 +259,10 @@ export class Flow {
       return;
     }
     if (gen !== this.gen || this.phase !== "fight") return;
+    this.cast(p, spec, mo, loudness);
+  }
+
+  private cast(p: Player, spec: MoveSpec, mo: Motion, loudness?: number) {
     const move = toSimMove(spec);
     const vol = clamp01(loudness ?? 0.5);
     if (!this.sim.canAct(p, move) || !this.sim.playMove(p, move, mo, vol)) {
@@ -236,6 +274,7 @@ export class Flow {
 
   private startCharging(p: Player, job: string, guess: string | null) {
     if (this.phase !== "fight" || (p !== 1 && p !== 2)) return;
+    if (this.doneJobs.has(job)) return; // its `ready` got here first: charging now would never end
     this.charging.set(p, job);
     this.sim.setCharging(p, true);
     this.hooks.charging(p, guess, true);
@@ -250,12 +289,30 @@ export class Flow {
       if (gen !== this.gen || this.charging.get(p) !== job) return;
       try {
         const r = await this.api.job(job);
-        if (r.status === "done" && r.move) return this.finishJob(p, job, r.move, r.motion);
+        if (r.status === "done" && r.move) {
+          // The `ready` push is normally a moment behind and brings the motion inline and the shout's loudness
+          // (/job has neither): give it a beat before finishing from the poll.
+          await sleep(400);
+          return void this.finishJob(p, job, r.move, r.motion);
+        }
         if (r.status === "rejected") {
+          // contract/ws.md: `ready` always carries a move, the closest library move when generation was
+          // rejected. /job only says "rejected", so wait for that push before giving up on the shout.
+          await sleep(PUSH_GRACE_MS);
+          if (this.doneJobs.has(job) || this.charging.get(p) !== job) return;
+          this.doneJobs.add(job);
           this.stopCharging(p);
           return this.hooks.fizzle(p, `the spell fizzled${r.check ? ` (${r.check})` : ""}`);
         }
-      } catch { /* keep waiting for the push */ }
+      } catch (e) {
+        // 404: the server doesn't know the job (it restarted). No `ready` will ever come, so stop charging
+        // instead of leaving the fighter unable to act until the timeout. Anything else: keep waiting.
+        if (httpStatus(e) === 404 && this.charging.get(p) === job) {
+          this.doneJobs.add(job);
+          this.stopCharging(p);
+          return this.hooks.fizzle(p, "the spell was lost (the server restarted)");
+        }
+      }
       if (performance.now() - started > JOB_TIMEOUT_MS) {
         this.stopCharging(p);
         return this.hooks.fizzle(p, "the spell took too long");
@@ -263,12 +320,44 @@ export class Flow {
     }
   }
 
-  private finishJob(p: Player, job: string, move?: MoveSpec, motion?: Motion, loudness?: number) {
+  private async finishJob(p: Player, job: string, move?: MoveSpec, motion?: Motion, loudness?: number) {
     if (this.doneJobs.has(job)) return;
     this.doneJobs.add(job);
-    if (this.charging.get(p) === job) this.stopCharging(p);
     // a `ready` for a job we never saw a `charge` for still plays: the move is what matters
-    if (move) void this.play(p, move, motion, loudness);
+    if (!move) {
+      if (this.charging.get(p) === job) this.stopCharging(p);
+      return;
+    }
+    const match = this.match;
+    let mo = motion;
+    try {
+      mo ??= await this.api.motion(move.motion_id);
+    } catch (e) {
+      if (this.charging.get(p) === job) this.stopCharging(p);
+      this.hooks.toast(`Couldn't load the motion for ${move.name}: ${(e as Error).message}`);
+      return;
+    }
+    if (match !== this.match) return;
+    if (this.charging.get(p) === job) this.stopCharging(p);
+    // The fighter may be down, stunned, mid-move or between rounds right now. The server already put the
+    // move in the library, so never drop it: it casts as soon as the fighter can (tryWild, every frame).
+    this.wild[p] = { move, motion: mo, loudness, left: WILD_WAIT_S };
+    if (this.phase === "fight" && !this.koPending) this.tryWild(p, 0);
+  }
+
+  /** Casts a finished wildcard once its fighter can act; gives up after WILD_WAIT_S of fight time. */
+  private tryWild(p: Player, dt: number) {
+    const w = this.wild[p];
+    if (!w || !this.simReady || this.charging.has(p)) return; // a newer wildcard is still generating: wait for it
+    const move = toSimMove(w.move);
+    if (this.sim.canAct(p, move)) {
+      this.wild[p] = null;
+      this.cast(p, w.move, w.motion, w.loudness);
+      return;
+    }
+    if ((w.left -= dt) > 0) return;
+    this.wild[p] = null;
+    this.hooks.fizzle(p, `${w.move.name} slipped away (${this.whyNot(p, move)})`);
   }
 
   private stopCharging(p?: Player) {
@@ -291,13 +380,23 @@ export class Flow {
 
   // ---------- sim events ----------
   private onSim(e: SimEvent) {
+    // The round is already decided (time ran out): an attack still in flight that knocks someone out must not
+    // put a K.O. and slow motion on top of "X wins the round", nor tell the phones about a second ending.
+    if (this.roundOver && (e.kind === "ko" || e.kind === "round")) return;
     this.hooks.simEvent(e);
     this.event(e);
     if (e.kind === "ko") {
+      this.koPending = true;
+      this.koAt = performance.now();
       const gen = this.gen;
       setTimeout(() => gen === this.gen && this.endRound(other(e.loser), "ko"), KO_TO_ROUND_MS);
     } else if (e.kind === "round") {
-      this.endRound(e.winner, "sim");
+      this.simRoundSent = true;
+      // A sim that sends `round` right with its `ko` would cut the fall short: keep the KO pause either way.
+      const wait = this.koPending ? KO_TO_ROUND_MS - (performance.now() - this.koAt) : 0;
+      const gen = this.gen;
+      if (wait > 50) setTimeout(() => gen === this.gen && this.endRound(e.winner, "sim"), wait);
+      else this.endRound(e.winner, "sim");
     }
   }
 
@@ -313,6 +412,7 @@ export class Flow {
   private async ensureSim() {
     if (!this.needsInit()) return;
     const chars = this.chosenCharacters();
+    this.simReady = false; // the frame loop must not step or read a sim that is being rebuilt
     await this.sim.init(this.idle!, chars);
     this.simCharacters = chars.join("+");
     this.simReady = true;

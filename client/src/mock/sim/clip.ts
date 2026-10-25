@@ -13,6 +13,10 @@ export class ClipSampler {
   private readonly map: (frame: number[], out?: number[]) => number[];
   private readonly a: number[];
   private readonly b: number[];
+  private readonly c: number[];
+  private readonly d: number[];
+  /** Frames of the crossfade that hides a looped clip's seam; 0 when the clip already loops cleanly. */
+  private readonly seam: number;
   private readonly x0: number;
   private readonly y0: number;
   private readonly hc: number; // cos/sin of minus the frame-0 heading
@@ -28,6 +32,8 @@ export class ClipSampler {
     this.map = kin.motionMapper(motion, fallback);
     this.a = fallback.slice();
     this.b = fallback.slice();
+    this.c = fallback.slice();
+    this.d = fallback.slice();
     this.free = kin.model.joints.find((j) => j.type === "free")?.qposAdr ?? 0;
     const r0 = motion.qpos[0];
     this.x0 = r0[0] ?? 0;
@@ -38,14 +44,42 @@ export class ClipSampler {
     this.hc = Math.cos(-yaw);
     this.hs = Math.sin(-yaw);
     this.hq = [Math.cos(-yaw / 2), 0, 0, Math.sin(-yaw / 2)];
+    // Kimodo idles don't loop: the last frame is somewhere else than the first, and wrapping straight from one
+    // to the other makes an idle fighter twitch every few seconds. Crossfade over ~0.4 s unless it already loops.
+    const last = motion.qpos[this.frames - 1] ?? r0;
+    let gap = Math.hypot((last[0] ?? 0) - this.x0, (last[1] ?? 0) - this.y0) / 0.02; // 2 cm of root drift = 1
+    for (let i = 7; i < Math.min(r0.length, last.length); i++) gap = Math.max(gap, Math.abs(last[i] - r0[i]) / 0.05); // ~3 deg
+    this.seam = this.frames >= 8 && gap > 1 ? Math.min(Math.round(0.4 * this.fps), Math.floor((this.frames - 1) / 3)) : 0;
   }
 
-  /** Full local qpos at time t (seconds). loop wraps (idle), otherwise holds the last frame. */
+  /** Full local qpos at time t (seconds). loop wraps (idle, seam crossfaded), otherwise holds the last frame. */
   sample(t: number, loop: boolean, out: number[]) {
-    const n = this.frames;
+    const n = this.frames, nb = this.seam;
     let f = t * this.fps;
-    if (loop) f = ((f % n) + n) % n;
-    else f = Math.min(n - 1, Math.max(0, f));
+    if (!loop || !nb) return this.at(loop ? ((f % n) + n) % n : Math.min(n - 1, Math.max(0, f)), loop, out);
+    // Play frames [0, L) where L = n - 1 - nb; over the first nb frames, fade from the clip's tail (f + L) into its
+    // head (f). Continuous at the wrap (f -> L is the tail's start) and where the fade ends (f = nb is the head).
+    const L = n - 1 - nb;
+    f = ((f % L) + L) % L;
+    if (f >= nb) return this.at(f, false, out);
+    this.at(f + L, false, this.c);
+    this.at(f, false, this.d);
+    const u = f / nb, w = u * u * (3 - 2 * u);
+    const r = this.free;
+    for (let i = 0; i < out.length; i++) out[i] = this.c[i] + (this.d[i] - this.c[i]) * w;
+    const s = this.c[r + 3] * this.d[r + 3] + this.c[r + 4] * this.d[r + 4] + this.c[r + 5] * this.d[r + 5] + this.c[r + 6] * this.d[r + 6] < 0 ? -1 : 1;
+    let len = 0;
+    for (let k = 3; k < 7; k++) {
+      out[r + k] = this.c[r + k] + (s * this.d[r + k] - this.c[r + k]) * w;
+      len += out[r + k] * out[r + k];
+    }
+    len = Math.sqrt(len) || 1;
+    for (let k = 3; k < 7; k++) out[r + k] /= len;
+  }
+
+  /** qpos at fractional frame f (already wrapped or clamped). */
+  private at(f: number, loop: boolean, out: number[]) {
+    const n = this.frames;
     const i0 = Math.floor(f);
     const i1 = loop ? (i0 + 1) % n : Math.min(i0 + 1, n - 1);
     const u = f - i0;

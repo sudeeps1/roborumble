@@ -593,7 +593,9 @@ export class StubSim implements Sim {
       push = Math.min(0.45, how === "shockwave" ? 0.12 + dmg * 0.012 : 0.05 + dmg * 0.008);
     }
     if (def.hp <= 0) this.knockOut(def, att);
-    else if (!blocked && (dmg >= R.KNOCKDOWN_DAMAGE || (clean && move.power === 3))) {
+    // stub rule: a signature move that lands always knocks down ("a signature move landing with a real fall"
+    // is a CLAUDE.md demo moment; a judge's Forge move often deals well under KNOCKDOWN_DAMAGE)
+    else if (!blocked && (dmg >= R.KNOCKDOWN_DAMAGE || (clean && move.power === 3) || move.signature)) {
       this.knockDown(def, false);
       push = Math.max(push, 0.3);
     }

@@ -23,6 +23,9 @@ export class Stage {
   readonly composer: EffectComposer;
   readonly bloom: UnrealBloomPass;
 
+  /** True while the browser has taken the WebGL context away (GPU reset). three.js gets it back when it can. */
+  lost = false;
+  private readonly contextCbs: ((lost: boolean) => void)[] = [];
   private shakeAmt = 0;
   private focus = new THREE.Vector3(0, 0.85, 0);
   private dist = 3.7;
@@ -30,6 +33,10 @@ export class Stage {
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    // After the renderer's own listeners: three.js calls preventDefault (so the browser may give the context back)
+    // and re-initializes its GL state on restore before ours runs.
+    canvas.addEventListener("webglcontextlost", () => { this.lost = true; this.contextCbs.forEach((cb) => cb(true)); });
+    canvas.addEventListener("webglcontextrestored", () => setTimeout(() => { this.lost = false; this.contextCbs.forEach((cb) => cb(false)); }));
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
@@ -62,9 +69,14 @@ export class Stage {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Called with true when the WebGL context is lost and false when it comes back. */
+  onContext(cb: (lost: boolean) => void) {
+    this.contextCbs.push(cb);
+  }
+
   /** Add screen shake; decays on its own. ~0.02 small hit, ~0.08 big hit. */
   shake(amount: number) {
-    this.shakeAmt = Math.min(0.15, this.shakeAmt + amount);
+    if (amount > 0) this.shakeAmt = Math.min(0.15, this.shakeAmt + amount);
   }
 
   /**
@@ -74,12 +86,20 @@ export class Stage {
   render(dt: number, a: THREE.Vector3, b: THREE.Vector3, zoomIn = 0) {
     const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
     const gap = Math.abs(a.x - b.x);
-    const want = THREE.MathUtils.clamp(2.9 + gap * 0.75, 3.3, 6.5) * (1 - 0.3 * zoomIn);
-    const k = 1 - Math.exp(-dt * 3);
-    this.focus.x += (mid.x - this.focus.x) * k;
-    this.focus.y += (0.8 + mid.y * 0.15 - this.focus.y) * k;
-    this.focus.z += (mid.z * 0.5 - this.focus.z) * k;
-    this.dist += (want - this.dist) * k;
+    // The camera eases toward the fighters, so a single NaN would stick in it forever (blank stage): skip it.
+    if (Number.isFinite(mid.x + mid.y + mid.z + gap + zoomIn)) {
+      const want = THREE.MathUtils.clamp(2.9 + gap * 0.75, 3.3, 6.5) * (1 - 0.3 * zoomIn);
+      const k = 1 - Math.exp(-dt * 3);
+      this.focus.x += (mid.x - this.focus.x) * k;
+      this.focus.y += (0.8 + mid.y * 0.15 - this.focus.y) * k;
+      this.focus.z += (mid.z * 0.5 - this.focus.z) * k;
+      this.dist += (want - this.dist) * k;
+    }
+    if (!Number.isFinite(this.focus.x + this.focus.y + this.focus.z + this.dist + this.shakeAmt)) {
+      this.focus.set(0, 0.85, 0);
+      this.dist = 3.7;
+      this.shakeAmt = 0;
+    }
 
     this.basePos.set(this.focus.x, this.focus.y + 0.32, this.focus.z + this.dist);
     this.camera.position.copy(this.basePos);

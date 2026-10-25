@@ -101,7 +101,9 @@ varying vec3 vV;
 void main() {
   float rim = 1.0 - abs(dot(normalize(vN), normalize(vV)));
   float h = vUv.y;
-  float vert = pow(1.0 - h, uFade) * smoothstep(0.0, 0.03, h);
+  // pow() of a negative base is NaN, and the interpolated uv at the top rim can land a hair above 1.0 (measured
+  // on the Mac GPU: h = 1.0000001 gives NaN). One NaN pixel spreads through the bloom pass and blanks the frame.
+  float vert = pow(max(1.0 - h, 1e-4), uFade) * smoothstep(0.0, 0.03, h);
   float st = 1.0;
   if (uStripes > 0.0) st = mix(1.0, 0.45 + 0.55 * sin(vUv.x * 6.2831853 * 7.0 + h * 9.0 - uTime * 5.0), uStripes);
   float a = uOpacity * vert * mix(0.3, 1.0, rim * rim) * max(st, 0.0);

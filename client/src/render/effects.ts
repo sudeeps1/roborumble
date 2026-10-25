@@ -296,8 +296,10 @@ export class Effects {
    * A move just started playing. `caster` and `target` are chest points; `delay` is the seconds until the
    * move's hit_frame. Projectiles themselves are drawn from projectiles(); this is the flourish around them:
    * melee trails, a strike's telegraph at the target that lands ~0.6 s after `delay`, a shockwave ring, etc.
+   * `live()` is asked on the hit frame: false (the caster was knocked down first, so the sim dropped the move)
+   * skips the release, the shockwave and the strike's impact, which would otherwise flash for a move that did nothing.
    */
-  cast(move: CastInfo, caster: THREE.Vector3, target: THREE.Vector3, delay: number): void {
+  cast(move: CastInfo, caster: THREE.Vector3, target: THREE.Vector3, delay: number, live: () => boolean = () => true): void {
     const effect = effectOf(move.effect, move.type);
     const fl = flavorOf(effect, move.type), P = palette(fl, move.type);
     const ks = 0.75 + 0.25 * THREE.MathUtils.clamp(move.power || 1, 1, 3); // 1 .. 1.5
@@ -309,9 +311,9 @@ export class Effects {
     if (move.effect === "earth_wall") return this.castEarthWall(ks, ref, c, dir, d);
     if (move.effect === "spiral_orb") return this.castSpiralOrb(P, ks, ref, c, dir, d);
     switch (move.kind) {
-      case "projectile": return this.castProjectile(P, ks, ref, c, t, dir, d);
-      case "strike": return this.castStrike(fl, P, ks, ref, c, t, dir, d);
-      case "shockwave": return this.castShockwave(fl, P, ks, ref, c, d);
+      case "projectile": return this.castProjectile(P, ks, ref, c, t, dir, d, live);
+      case "strike": return this.castStrike(fl, P, ks, ref, c, t, dir, d, live);
+      case "shockwave": return this.castShockwave(fl, P, ks, ref, c, d, live);
       case "defend": return this.castDefend(P, ks, ref, c, dir, d);
       default: return this.castMelee(fl, P, ks, ref, c, dir, d);
     }
@@ -377,7 +379,7 @@ export class Effects {
     }
   }
 
-  /** Every frame. `dt` is already scaled for slow motion. */
+  /** Every frame. main.ts passes real time, even during the KO slow motion (see there). */
   update(dt: number, _t: number): void {
     this.now += dt;
     this.ps.step(dt);
@@ -459,7 +461,7 @@ export class Effects {
     });
   }
 
-  private castProjectile(P: Pal, ks: number, ref: FighterRef | null, caster: THREE.Vector3, target: THREE.Vector3, dir: number, d: number) {
+  private castProjectile(P: Pal, ks: number, ref: FighterRef | null, caster: THREE.Vector3, target: THREE.Vector3, dir: number, d: number, live: () => boolean) {
     // wind-up: motes gather in front of the caster until the hit frame
     this.run(0, d, {
       tick: (k, dt) => {
@@ -472,6 +474,7 @@ export class Effects {
     // release flash at the casting hand
     this.run(d, 0, {
       begin: () => {
+        if (!live()) return;
         const h = this.limbToward(ref, target, this.v) ?? this.castPoint(ref, caster, dir, 0.35, this.v);
         this.paint.flash(h.x, h.y, h.z, 0.55 * ks, P.core, 0.8, 0.14);
         this.paint.ring(h.x, h.y, h.z, 0.6 * ks, P.glow, 1, 0.25, 0.8);
@@ -480,8 +483,10 @@ export class Effects {
     });
   }
 
-  private castStrike(fl: Flavor, P: Pal, ks: number, ref: FighterRef | null, caster: THREE.Vector3, target: THREE.Vector3, dir: number, d: number) {
+  private castStrike(fl: Flavor, P: Pal, ks: number, ref: FighterRef | null, caster: THREE.Vector3, target: THREE.Vector3, dir: number, d: number, live: () => boolean) {
     const land = d + 0.6, gx = target.x, gz = target.z;
+    let cancelAt = -1; // effect-clock time the caster lost the move (knocked down before the hit frame)
+    const fadeOut = () => (cancelAt < 0 ? 1 : Math.max(0, 1 - (this.now - cancelAt) / 0.2));
     // telegraph: a rune circle draws itself at the target and tightens until the strike lands; a thin pillar marks it
     let a: Slot | null = null, b: Slot | null = null, beam: Slot | null = null;
     this.run(0, land, {
@@ -500,7 +505,7 @@ export class Effects {
       tick: (k) => {
         const t = k * land;
         const pulse = 0.75 + 0.25 * Math.sin(this.now * (9 + 16 * k));
-        const fadeIn = Math.min(1, t / 0.15);
+        const fadeIn = Math.min(1, t / 0.15) * fadeOut();
         if (a) {
           a.mesh.rotation.set(-Math.PI / 2, 0, this.now * 1.2);
           a.mesh.scale.setScalar((1.25 - 0.3 * k) * Math.sqrt(ks));
@@ -515,7 +520,7 @@ export class Effects {
         if (beam) {
           const r = 0.06 + 0.06 * (1 - k);
           beam.mesh.scale.set(r, 7, r);
-          beam.u.uOpacity.value = 0.4 * k * pulse;
+          beam.u.uOpacity.value = 0.4 * k * pulse * fadeOut();
           beam.u.uTime.value = this.now;
         }
       },
@@ -540,7 +545,8 @@ export class Effects {
     let lx = sx, ly = sy, lz = gz, spin = 0;
     this.run(land - fallDur, fallDur, {
       begin: () => {
-        if (shape === "none") return;
+        if (!live()) cancelAt = this.now; // the sim never queued the strike: no fall, no impact
+        if (shape === "none" || cancelAt >= 0) return;
         m = this.falls.get();
         if (!m) return;
         m.mesh.geometry = this.fallGeo[shape];
@@ -550,6 +556,7 @@ export class Effects {
         m.mesh.position.set(sx, sy, gz);
       },
       tick: (k, dt) => {
+        if (cancelAt >= 0) return;
         const e = Math.pow(k, 1.4);
         const x = sx + (gx - sx) * e, y = sy + (0.05 - sy) * e, z = gz;
         const inv = dt > 0 ? 1 / dt : 0;
@@ -571,7 +578,7 @@ export class Effects {
       },
       end: () => {
         if (m) this.falls.free(m);
-        this.strikeImpact(fl, P, ks, gx, gz);
+        if (cancelAt < 0) this.strikeImpact(fl, P, ks, gx, gz);
       },
     });
   }
@@ -591,7 +598,7 @@ export class Effects {
     this.stage.shake(0.025 * ks);
   }
 
-  private castShockwave(fl: Flavor, P: Pal, ks: number, ref: FighterRef | null, caster: THREE.Vector3, d: number) {
+  private castShockwave(fl: Flavor, P: Pal, ks: number, ref: FighterRef | null, caster: THREE.Vector3, d: number, live: () => boolean) {
     // wind-up: a rune circle under the caster and gathering motes
     let rc: Slot | null = null;
     const wind = d + 0.3;
@@ -616,6 +623,7 @@ export class Effects {
     let ring: Slot | null = null, wall: Slot | null = null, cx = caster.x, cz = caster.z;
     this.run(d, 0.5, {
       begin: () => {
+        if (!live()) return; // knocked down before the hit frame: the sim dropped the wave
         const g = this.groundOf(ref, caster, this.v);
         cx = g.x; cz = g.z;
         ring = this.decal(this.tex.shockRing, cx, 0.03, cz, 0.3, P.rune);
@@ -955,6 +963,8 @@ export class Effects {
   }
 
   private light(x: number, y: number, z: number, c: THREE.Color, peak: number, dur: number) {
+    // A NaN light position turns every lit pixel NaN (black, and the bloom spreads it) until the light is reused.
+    if (!Number.isFinite(x + y + z + peak + dur)) return;
     let f = this.flashes[0];
     for (const g of this.flashes) if (g.t / g.dur > f.t / f.dur) f = g;
     f.light.position.set(x, y, z);
