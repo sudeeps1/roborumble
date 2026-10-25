@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <div class="sky"></div>
@@ -57,12 +57,48 @@
       <button data-tap="dodge_right">Dodge ⟶</button>
     </div>
 
+    <button id="forgeOpen" class="forge-open">✦ Forge a new spell <small>act it out on camera</small></button>
+
     <h2>Your Spellbook <small id="bookCount"></small></h2>
     <p class="sub">Moves you invented or cast. Tap one to cast it.</p>
     <div class="book" id="book"></div>
   </section>
 
+  <!-- Forge: act out a move, Kimodo makes it legendary -->
+  <section id="forge" class="forge hidden">
+    <header class="ftop"><h2>The Forge</h2><button id="forgeClose" class="x" aria-label="Close">✕</button></header>
+    <div class="stage">
+      <video id="cam" playsinline muted autoplay></video>
+      <canvas id="skel"></canvas>
+      <div class="count" id="count"></div>
+    </div>
+    <p class="fhint" id="fhint">Prop your phone up and step back until your whole body glows.</p>
+
+    <div id="stepRecord">
+      <button id="recBtn" class="gold" disabled>Record my move (4 s)</button>
+    </div>
+
+    <div id="stepName" class="hidden">
+      <label class="flabel" for="spellName">Name your spell</label>
+      <input id="spellName" maxlength="40" autocomplete="off" placeholder="Fireball, Gorilla Smash…">
+      <div class="wild">
+        <span>Follow my acting</span>
+        <input id="wild" type="range" min="0" max="1" step="0.05" value="0.6">
+        <span>Go wild</span>
+      </div>
+      <button id="forgeBtn" class="gold">Forge it ✦</button>
+      <button id="redoRec" class="ghost">Record again</button>
+    </div>
+
+    <div id="stepResult" class="hidden">
+      <div class="fcard" id="fcard"></div>
+      <button id="keepBtn" class="gold">Keep it in my spellbook</button>
+      <button id="redoAll" class="ghost">Redo</button>
+    </div>
+  </section>
+
   <div class="toast" id="toast"></div>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
+  <script type="module" src="forge.js?v=5"></script>
 </body>
 </html>

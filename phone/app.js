@@ -182,7 +182,7 @@
       silentMs = loud ? 0 : silentMs + frameMs;
       if (silentMs > 550 || spokenMs > 4000) {
         speaking = false; $("mic").classList.remove("hot");
-        if (spokenMs - silentMs > 250) cast("", Math.min(1, peak * 6), wav(chunks, sr));
+        if (spokenMs - silentMs > 250 && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(chunks, sr));
         chunks = [];
       }
     };
@@ -203,7 +203,7 @@
       $("mic").classList.remove("hot");
       const r = e.results[e.results.length - 1];
       const text = r?.[0]?.transcript?.trim();
-      if (r?.isFinal && text && text.length > 2) cast(text, 0.75);
+      if (r?.isFinal && text && text.length > 2 && !window.IF_forging) cast(text, 0.75);
     };
     rec.onerror = (e) => { if (e.error === "not-allowed") { wanted = false; $("micLabel").textContent = "Mic blocked: allow it in settings"; } };
     rec.onend = () => { running = false; $("mic").classList.remove("hot"); if (wanted && micOn) setTimeout(() => { try { rec.start(); } catch {} }, 250); };
@@ -224,6 +224,9 @@
     new Int16Array(buf, 44).set(pcm);
     return new Blob([buf], { type: "audio/wav" });
   }
+
+  // ---------- for forge.js ----------
+  window.IF = { API, get nick() { return nick; }, remember, toast, refreshDeck };
 
   // ---------- helpers ----------
   function show(html) { $("heard").innerHTML = html; }

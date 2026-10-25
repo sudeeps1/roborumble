@@ -86,3 +86,35 @@ h2 small { font: 400 14px "EB Garamond", serif; opacity: .7; }
   max-width: 90vw; padding: 10px 16px; border-radius: 999px; background: rgba(24,18,10,.92); border: 1px solid var(--gold);
   font: 600 14px Cinzel, serif; transition: transform .25s; z-index: 10; }
 .toast.show { transform: translateX(-50%) translateY(0); }
+
+/* forge */
+.forge-open { display: block; width: 100%; margin: 0 0 18px; padding: 14px; border-radius: 14px; color: #2b1d0e; text-align: center;
+  font: 700 17px Cinzel, serif; background: linear-gradient(135deg, #f9e39a, #e0a24a 55%, #b47cff); border: 1.5px solid #8a6a22;
+  box-shadow: 0 0 22px rgba(245,215,126,.35); }
+.forge-open small { display: block; font: italic 400 14px "EB Garamond", serif; }
+.forge { position: fixed; inset: 0; z-index: 20; overflow-y: auto; padding: calc(10px + env(safe-area-inset-top)) 16px 24px;
+  background: radial-gradient(ellipse at 50% -10%, #3b3f8a, transparent 60%), var(--night); }
+.ftop { display: flex; justify-content: space-between; align-items: center; }
+.x { font-size: 22px; color: var(--parch); background: none; border: 1px solid var(--gold); border-radius: 50%; width: 40px; height: 40px; }
+.stage { position: relative; margin: 10px auto; width: 100%; max-width: 420px; aspect-ratio: 3 / 4; border-radius: 16px; overflow: hidden;
+  border: 2px solid var(--gold); background: #000; box-shadow: 0 0 30px rgba(180,124,255,.35); }
+.stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.stage video, .stage canvas.mirror { transform: scaleX(-1); }
+.stage.ready { border-color: var(--ok); box-shadow: 0 0 30px rgba(126,224,163,.6); }
+.count { position: absolute; inset: 0; display: grid; place-items: center; font: 900 110px Cinzel, serif; color: var(--gold2);
+  text-shadow: 0 0 30px var(--gold), 0 4px 0 #5a3d0c; pointer-events: none; }
+.count.rec { font-size: 26px; place-items: start center; padding-top: 14px; color: #ff6f7e; text-shadow: 0 0 12px #000; }
+.fhint { text-align: center; font-style: italic; margin: 6px 0 10px; }
+.flabel { display: block; font: 700 13px Cinzel, serif; letter-spacing: .08em; margin: 6px 0 4px; }
+#spellName { width: 100%; padding: 12px; font: 600 20px "EB Garamond", serif; border-radius: 10px; border: 1.5px solid var(--gold); background: #fffaf0; color: var(--ink); }
+.wild { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin: 14px 0 0; font: 600 12px Cinzel, serif; }
+.wild input { width: 100%; accent-color: var(--gold); }
+.ghost { width: 100%; margin-top: 10px; padding: 11px; font: 600 15px Cinzel, serif; color: var(--parch); background: none;
+  border: 1px solid rgba(201,162,74,.6); border-radius: 12px; }
+.fcard { padding: 14px; border-radius: 14px; color: var(--ink); background: linear-gradient(var(--parch), var(--parch2));
+  border: 2px solid var(--gold); border-left: 8px solid var(--tc, var(--gold)); }
+.fcard .nm { font: 900 24px Cinzel, serif; }
+.fcard .ty { font: 700 13px Cinzel, serif; letter-spacing: .06em; color: #6b4a14; margin: 4px 0 8px; }
+.fcard .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; font: 700 12px Cinzel, serif; }
+.fcard .stats b { display: block; font-size: 20px; }
+.fcard .how { font-size: 14px; font-style: italic; margin-top: 8px; opacity: .8; }
