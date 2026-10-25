@@ -1,8 +1,8 @@
 # Infinite Fighter (HackTX)
 
-Idea branch `v1`. Nothing is built yet. Numbers marked (guess) are unmeasured
-until someone times Kimodo on the demo GPU. This branch replaces main's
-live-only Voice Fighter plan; main and idea/spell-casting are untouched.
+Team notes for Claude Code sessions. This file is the plan we started from;
+README.md describes what was built, and its measured numbers replace the
+(guess) marks below.
 
 A robot fighting game where every move is invented, either by a Claude agent
 overnight or by a player, live, with their body. Fighters are Unitree G1
