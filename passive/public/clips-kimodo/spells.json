@@ -1,0 +1,85 @@
+[
+ {
+  "name": "Fireball",
+  "aliases": [
+   "fireball",
+   "fire ball",
+   "hadoken"
+  ],
+  "type": "fire",
+  "kind": "projectile",
+  "effect": "ember_orb",
+  "power": 3,
+  "hit_joint": "r_hand",
+  "hit_frame": 20,
+  "duration": 2.2,
+  "stability": 0.73,
+  "kimodo_prompt": "a person turns the body and draws both hands back to the right hip, then twists forward and thrusts both palms out hard",
+  "file": "fireball.json",
+  "clip": "spell.fireball",
+  "server_move_id": "mv_00023"
+ },
+ {
+  "name": "Thunder Call",
+  "aliases": [
+   "thunder call",
+   "lightning",
+   "call lightning",
+   "lightning strike"
+  ],
+  "type": "lightning",
+  "kind": "strike",
+  "effect": "wisp_bolt",
+  "power": 3,
+  "hit_joint": "r_hand",
+  "hit_frame": 42,
+  "duration": 2.2,
+  "stability": 0.85,
+  "kimodo_prompt": "a person throws both arms out wide to the sides, then raises both hands high overhead and swings them down in front",
+  "file": "thunder_call.json",
+  "clip": "spell.thunder_call",
+  "server_move_id": "mv_00020"
+ },
+ {
+  "name": "Earth Wall",
+  "aliases": [
+   "earth wall",
+   "stone wall",
+   "rock wall",
+   "earth style wall"
+  ],
+  "type": "physical",
+  "kind": "defend",
+  "effect": "earth_wall",
+  "power": 2,
+  "hit_joint": "r_hand",
+  "hit_frame": 53,
+  "duration": 2.4,
+  "stability": 0.46,
+  "kimodo_prompt": "a person presses both palms together in front of the chest, then crouches and slams both palms down onto the ground",
+  "file": "earth_wall.json",
+  "clip": "spell.earth_wall",
+  "server_move_id": "mv_00022"
+ },
+ {
+  "name": "Spiral Sphere",
+  "aliases": [
+   "spiral sphere",
+   "rasengan",
+   "spiral orb",
+   "spinning sphere"
+  ],
+  "type": "ice",
+  "kind": "melee",
+  "effect": "spiral_orb",
+  "power": 3,
+  "hit_joint": "r_hand",
+  "hit_frame": 31,
+  "duration": 2.2,
+  "stability": 0.84,
+  "kimodo_prompt": "a person holds the left hand over the open right palm in front of the body, then lunges forward and thrusts the right palm out hard",
+  "file": "spiral_sphere.json",
+  "clip": "spell.spiral_sphere",
+  "server_move_id": "mv_00021"
+ }
+]

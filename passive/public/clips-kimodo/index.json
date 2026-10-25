@@ -1,0 +1,102 @@
+{
+ "spell.fireball": [
+  "fireball.json"
+ ],
+ "spell.thunder_call": [
+  "thunder_call.json"
+ ],
+ "spell.earth_wall": [
+  "earth_wall.json"
+ ],
+ "spell.spiral_sphere": [
+  "spiral_sphere.json"
+ ],
+ "guard": [
+  "idle_fighting.json",
+  "idle_breathe.json"
+ ],
+ "step.forward": [
+  "step_forward.json"
+ ],
+ "step.back": [
+  "step_back.json"
+ ],
+ "dodge.left": [
+  "dodge_left.json"
+ ],
+ "dodge.right": [
+  "dodge_right.json"
+ ],
+ "dodge.back": [
+  "dodge_back.json"
+ ],
+ "block": [
+  "block.json"
+ ],
+ "duck": [
+  "duck.json"
+ ],
+ "jump": [
+  "jump.json"
+ ],
+ "getup.stand": [
+  "get_up.json"
+ ],
+ "getup.knees": [
+  "getup_knees.json"
+ ],
+ "punch.leftJab": [
+  "punch_left_jab.json"
+ ],
+ "punch.rightJab": [
+  "punch_right_jab.json"
+ ],
+ "punch.leftHook": [
+  "punch_left_hook.json"
+ ],
+ "punch.rightHook": [
+  "punch_right_hook.json"
+ ],
+ "guard.bramble": [
+  "idle_bramble.json"
+ ],
+ "guard.marigold": [
+  "idle_marigold.json"
+ ],
+ "guard.flicker": [
+  "idle_flicker.json"
+ ],
+ "guard.rime": [
+  "idle_rime.json"
+ ],
+ "guard.hush": [
+  "idle_hush.json"
+ ],
+ "hit.head": [
+  "hit_head.json"
+ ],
+ "hit.body": [
+  "hit_body.json"
+ ],
+ "stagger": [
+  "stagger.json"
+ ],
+ "fall.back": [
+  "fall_back.json"
+ ],
+ "charge": [
+  "charge_up.json"
+ ],
+ "taunt": [
+  "taunt.json"
+ ],
+ "entrance": [
+  "entrance.json"
+ ],
+ "victory": [
+  "victory.json"
+ ],
+ "defeat": [
+  "defeat.json"
+ ]
+}
