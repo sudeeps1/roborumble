@@ -14,7 +14,7 @@ import type { MoveSpec } from "../core/spells.ts";
 export const TYPE_COLORS: Record<string, { core: number; glow: number; spark: number }> = {
   fire: { core: 0xfff0c8, glow: 0xff5a14, spark: 0xffa040 },
   ice: { core: 0xf2ffff, glow: 0x38d0ff, spark: 0xb8f2ff },
-  lightning: { core: 0xffffff, glow: 0xffd84a, spark: 0xfff4b0 },
+  lightning: { core: 0xfff2c8, glow: 0xffd84a, spark: 0xfff4b0 }, // a warm core: never clipped white
   shadow: { core: 0xf2dcff, glow: 0x8f3dff, spark: 0xc49aff },
   physical: { core: 0xfff4e2, glow: 0xffb35a, spark: 0xffd9a0 },
 };
@@ -27,7 +27,9 @@ const FX = {
   sparks: 700, motes: 260, chips: 160, dust: 40, rings: 12, flashes: 10, lights: 3, shots: 6, trail: 12,
   strikeDelay: 0.6,     // s from release to landing (spells.ts SPELL.strikeDelay)
   strikeColumn: 0.38,   // s the column stays
-  wall: [0.24, 1.15, 1.05] as const, wallAhead: 0.8, wallLife: 1.3, // thick, wide, tall (rounded)
+  wall: [0.24, 1.15, 1.05] as const, // m: thick, wide, tall (rounded)
+  wallAhead: 1.05,      // m in front of the caster at most (halfway to the opponent when closer)
+  wallLife: 1.3,        // s
 };
 
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _c = new THREE.Color();
@@ -272,7 +274,7 @@ export class Fx {
       const ring = this.rings.pop()!; // two rings kept for the channeling auras
       this.auras.push({ ring, level: 0, type: "physical" });
       const mat = new THREE.MeshStandardMaterial({ color: look.stone, roughness: 0.95, emissive: 0x000000, transparent: true });
-      const mesh = new THREE.Mesh(new RoundedBoxGeometry(...FX.wall, 4, 0.1).translate(0, 0, FX.wall[2] / 2), mat);
+      const mesh = new THREE.Mesh(new RoundedBoxGeometry(...FX.wall, 4, 0.12).translate(0, 0, FX.wall[2] / 2), mat);
       mesh.visible = false;
       mesh.castShadow = true;
       this.root.add(mesh);
@@ -402,13 +404,13 @@ export class Fx {
       this.ring([p[0], p[1]], col.glow, 0.3, 1.9, 0.5, 1);
       this.ring([p[0], p[1]], col.spark, 0.2, 1.4, 0.4, 0.6);
       this.puff([p[0], p[1], 0.05], 10, 1.4, 0.7, 0.15);
-      this.chips.spray([p[0], p[1], 0.03], 14, 3);
       this.onSlam(0.55, [p[0], p[1], 0]);
     } else if (kind === "defend") {
       const w = this.walls[who];
       const p = this.pelvis(who), o = this.pelvis(foe);
       const dx = o[0] - p[0], dy = o[1] - p[1], d = Math.hypot(dx, dy) || 1;
-      w.base.set(p[0] + (dx / d) * FX.wallAhead, p[1] + (dy / d) * FX.wallAhead, 0);
+      const ahead = Math.min(FX.wallAhead, Math.max(0.55, d * 0.5)); // between them, never past the opponent
+      w.base.set(p[0] + (dx / d) * ahead, p[1] + (dy / d) * ahead, 0);
       w.mesh.rotation.set(0, 0, Math.atan2(dy, dx));
       const stone = type === "physical";
       w.mat.color.setHex(stone ? this.look.stone : col.glow);
@@ -418,7 +420,6 @@ export class Fx {
       w.mat.depthWrite = stone;
       w.t = 0;
       w.mesh.visible = true;
-      this.chips.spray([w.base.x, w.base.y, 0.03], 10, 2.4, [dx / d, dy / d]);
       this.puff([w.base.x, w.base.y, 0.05], 6, 0.8, 0.6, 0.3);
       this.onSlam(0.35, [w.base.x, w.base.y, 0]);
     }
@@ -435,7 +436,7 @@ export class Fx {
     s.landed = true;
     if (s.ring) s.ring.life = 0;
     const col = typeColors(s.type);
-    // a column of the spell's colour from the sky, a ground ring, sparks, chips and dust
+    // a soft column of the spell's colour from the sky, a ground ring, sparks and dust (stone chips are for bodies hitting the floor)
     if (!s.column) {
       const beam = (o: number) => {
         const b = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.beam, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
@@ -443,7 +444,7 @@ export class Fx {
         this.root.add(b);
         return b;
       };
-      s.column = [beam(0.7), beam(0.32)];
+      s.column = [beam(0.35), beam(0.2)];
     }
     s.column[0].material.color.setHex(col.core);
     s.column[1].material.color.setHex(col.glow);
@@ -451,9 +452,7 @@ export class Fx {
     s.colT = FX.strikeColumn;
     this.ring([s.spot.x, s.spot.y], col.glow, 0.2, 1.6, 0.45, 1);
     this.sparks.burst([s.spot.x, s.spot.y, 0.05], [0, 0, 1], 50, col.spark, 4, 0.9, 0.6);
-    this.flash([s.spot.x, s.spot.y, 1.0], col.glow, 0.8, 0.2);
     this.light([s.spot.x, s.spot.y, 1.2], col.glow, 1.5, 0.35); // gentle: the fighter under it must not wash out
-    this.chips.spray([s.spot.x, s.spot.y, 0.03], 14, 3.4);
     this.puff([s.spot.x, s.spot.y, 0.05], 8, 1.1, 0.6, 0.2);
     this.onSlam(0.6, [s.spot.x, s.spot.y, 0]);
   }
@@ -539,7 +538,7 @@ export class Fx {
         const a = Math.max(0, s.colT / FX.strikeColumn);
         const w = 0.6 + 0.6 * a;
         s.column[0].scale.set(0.14 * w, 6, 1); s.column[1].scale.set(0.9 * w, 6, 1);
-        s.column[0].material.opacity = 0.7 * a; s.column[1].material.opacity = 0.32 * a;
+        s.column[0].material.opacity = 0.35 * a; s.column[1].material.opacity = 0.2 * a;
         for (const b of s.column) b.visible = a > 0;
       }
     }

@@ -194,7 +194,7 @@ arena.on((e: ArenaEvent) => {
       const s = onScreen(e.point);
       const tags = [e.blocked && "BLOCKED", e.counter && "COUNTER!", e.clean && "CLEAN HIT", e.knockdown && "KNOCKDOWN"].filter(Boolean) as string[];
       const col = e.spellType && e.how ? `#${typeColors(e.spellType).spark.toString(16).padStart(6, "0")}` : "#fff";
-      if (s.ok && e.damage >= 0.5) hud.damage(s.x, s.y, e.damage, tags, big, col);
+      if (s.ok && e.damage >= 0.5) hud.damage(s.x, s.y - innerHeight * 0.08, e.damage, tags, big, col); // above the hit, off the face
       return;
     }
     case "move": {

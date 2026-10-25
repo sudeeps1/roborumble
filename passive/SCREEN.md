@@ -11,8 +11,12 @@ npm start        # planner + dev server, as for the rig
 Open http://localhost:5180/screen.html (the rig stays at `/`). Without the planner the fighters hold a
 standing guard (see README).
 
-URL options: `?ai=0` starts with both AIs off, `?spar=boxer,brawler` picks their styles, `?koAt=8` knocks
-the knight out 8 s into every round (to see the KO shot), `?ep=webgpu` runs SONIC on the GPU.
+URL options:
+- `?demo` plays one spell of each kind in turn, with both AIs off: Fireball, Thunder Call, a
+  channelled brand-new spell, Spiral Sphere, Earth Wall, Fireball into the wall.
+- `?ai=0` starts with both AIs off; `?spar=boxer,brawler` picks their styles.
+- `?koAt=8` knocks the knight out 8 s into every round, to see the KO and victory shots.
+- `?ep=webgpu` runs SONIC on the GPU.
 
 ## Keys
 | Key | P1 (Sylvara, elf) | P2 (Sir Aldric, knight) |
@@ -33,6 +37,7 @@ __screen.channel(1, null);                                 // done
 __screen.cast(1, spec, qposRows, 30, /* isNew */ true);    // spec: MoveSpec (spells.ts), rows: Kimodo qpos
 __screen.defend(2, "dodge.left"); __screen.punch(2, "punch.leftJab");
 __screen.ai(1, false); __screen.newMatch();
+__screen.pause(true);                                      // freeze the fight (the camera keeps breathing)
 ```
 The HUD and the effects only use a spell's data (name, type, kind, power, new), so any number of spells
 work with no art per spell.
@@ -61,22 +66,25 @@ work with no art per spell.
 
 ### The setting
 A meadow at dusk with no hard lines:
-- A soft sandy pad, solid to 3.3 m, that fades into the grass by 4.6 m.
-- A soft band of warm light centred on the ropes (`REFEREE.rope`) instead of a ring line.
-- Round trees (a few pink with blossom) 17-30 m out, all the way round, since the camera circles with the
+- A soft sandy pad, solid out to the ropes (`REFEREE.rope`), that fades into the grass by 4.3 m. It
+  marks the ring with no line; a thrown body lands on the grass.
+- A loose ring of round trees 24-34 m out, all the way round, since the camera circles with the
   fighters.
-- Rolling hills beyond the trees.
 - Exponential fog: clear around the fight, hazy by the trees, gone by the horizon. The sky dome's horizon
   is exactly the fog colour, so the ground melts into the sky without a seam.
 - Light: a lavender sky fill, a green bounce, a low warm sun, soft-edged shadows.
 
 Compatible with the physics: the ground is flat at z = 0 (the physics floor) everywhere a body or the
-camera can be; nothing but the floor stands within 15 m. Numbers come from `src/core/arena.ts`, not copies.
+camera can be; nothing but the floor stands within 20 m. Numbers come from `src/core/arena.ts`, not copies.
 
 ## Look
-Kept simple on purpose: a soft dusk meadow, gentle light (lower exposure and bloom
-than the rig), a storybook-soft HUD (cream and gold trim, coral vs periwinkle pill bars, a moon clock,
-star pips, Cinzel for names and spells, Fredoka for numbers).
+Kept simple on purpose:
+- **Setting:** a soft dusk meadow.
+- **Light:** gentle, with lower exposure and bloom than the rig.
+- **Effects:** no hard lines. Rings are soft gradients, the strike is a soft beam, Earth Wall is a
+  rounded stone, debris is smooth pebbles. Spell lights tint the fighters and never blow them out.
+- **HUD:** storybook-soft. Cream and gold trim, coral vs periwinkle pill bars, a moon clock, star pips,
+  Cinzel for names and spells, Fredoka for numbers, and a soft shade behind the top band.
 
 ## Shortcuts taken
 - **Fonts come from Google Fonts at runtime.** Offline at the venue they fall back to Georgia and
@@ -89,25 +97,35 @@ star pips, Cinzel for names and spells, Fredoka for numbers).
 - **Z / M demo a brand-new spell.** They play Thunder Call's clip under a long made-up name, to show the
   NEW tag and the long-name layout.
 - **My own rules.** 60 s rounds and best of 3; change them in `RULES` in `main.ts`.
-- **Testing was limited.** I checked it with headless-Chrome captures of the live sim (intro, fight,
-  block, cast, KO) and the type check. Frame rate in the browser pane, with the rig also running on
-  this laptop:
+- **Testing was limited.** I checked it with headless-Chrome captures of the live sim and the type
+  check:
+  - The captures cover the intro, fights, every spell kind via `?demo`, KO and victory. Exact moments
+    were captured by pausing on sim events.
+  - Two independent reviews looked for hard lines and harsh light.
+  - Camera motion over 25 s of AI fight: median rotation 0.2 °/s (a drift), shake up to 39 °/s on hits,
+    fewer than 1 frame in 1000 above 30 °/s, zoom punches to 10% tighter.
+
+  Frame rate in the browser pane, with the rig also running on this laptop:
   - A small window: a steady 60 fps.
   - 1920x1080 at 1.5x pixel density: 45 fps (p95 frame 33 ms). The physics kept up both times (0.97x
     real time), so the cost is pixels.
   - Screens 1600 px and wider now render at 1x density. I couldn't measure that, because the pane went
     hidden. Check it on the real TV.
 - **No sound.**
-- **The mockups are not committed.** The three mockup directions in `mockups/` were stopped after their
-  first build (no judging or refinement), because you picked this look instead.
+- **The mockups and test tools are not committed.** The three mockup directions in `mockups/` were
+  stopped after their first build (no judging or refinement), because you picked this look instead. The
+  headless capture script (`mockups/capture.mjs`) is there too.
 
 ## What can still improve
 - **Phones.** Wire them to `__screen.channel` / `cast` / `defend` from the room socket.
-- **Knight icon.** Its portrait reads dark; a stronger rim or a lighter background would help.
 - **Spell effects.** Each kind is one generic shape (orb, column, ring, wall, hand glow). Type-specific
   shapes (ice shards, fire swirl, a jagged bolt) would add flavour with no per-spell art.
-- **One effects module.** Sudeep's rig (`src/rig/render.ts`) now draws spells too; the two could share
-  one module.
+- **The game's spell effects.** The spells session put the game's spell effects in `src/fx/` (GameFx,
+  driven by Arena events, one look per `effect` tag: ember_orb, wisp_bolt, earth_wall, spiral_orb...).
+  The rig uses them; `src/rig/render.ts` shows the wiring. This screen keeps its own `fx.ts` for now,
+  which ignores the `effect` tag and is tuned soft (no hard lines, no harsh light). Switching to GameFx
+  would mean re-checking it for harsh light. The new `cast` event (a spell's clip starts) could also
+  wind effects up before `release`.
 - **KO camera.** It swings away from the winner but doesn't test for occlusion. A winner standing right
   over the body can still overlap it.
 - **HUD writes.** It sets bar widths every frame; diffing would save a little.

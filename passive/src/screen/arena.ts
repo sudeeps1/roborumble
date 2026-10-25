@@ -98,5 +98,5 @@ export function buildArena(stage: Stage): ArenaSet {
   stage.key.color.setHex(0xffd9b8);
   stage.key.intensity = 2.2;
 
-  return { look: { dust: 0xd2bea0, stone: 0x9a8a78, fist: 0xffe2a8, block: 0xb8e4ff }, update() {} };
+  return { look: { dust: 0xd2bea0, stone: 0x6e6454, fist: 0xffe2a8, block: 0xb8e4ff }, update() {} };
 }

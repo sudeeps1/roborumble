@@ -160,7 +160,7 @@ export class Director {
       // increasing azimuth moves the camera toward screen-right; swing away from the winner so the winner
       // stands behind the fallen fighter instead of between it and the camera
       const sgn = right >= 0 ? -1 : 1;
-      return { az: wrap(az0 + sgn * (0.6 + since * 0.05)), dist: 2.9, height: 0.7, centre: s.at.clone().setZ(0), lookZ: 0.4, fov: 34 };
+      return { az: wrap(az0 + sgn * (0.6 + since * 0.05)), dist: 3.6, height: 0.7, centre: s.at.clone().setZ(0), lookZ: 0.6, fov: 34 }; // the winner's head clears the HUD
     }
     // victory: in front of the winner, slightly low (heroic), slowly pushing in
     const facing = toOther; // the winner faces the loser

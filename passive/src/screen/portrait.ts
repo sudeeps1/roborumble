@@ -41,10 +41,10 @@ export async function portrait(url: string, hue: number, side: "left" | "right",
   back.position.set(hp.x - 1.6 * sx, hp.y + 1.8, hp.z + 0.8);
   back.target.position.copy(hp);
   scene.add(key, key.target, back, back.target, new THREE.HemisphereLight(0x8090b0, 0x302018, dark ? 1.6 : 0.7));
-  const cam = new THREE.PerspectiveCamera(20, 1, 0.05, 20);
+  const cam = new THREE.PerspectiveCamera(23, 1, 0.05, 20);
   cam.up.set(0, 0, 1);
   cam.position.set(hp.x, hp.y - 1.55, hp.z + 0.03);
-  cam.lookAt(hp.x, hp.y, hp.z - 0.12);
+  cam.lookAt(hp.x, hp.y, hp.z - 0.05); // the whole head (the knight's helm rides high) and the shoulders
   r.render(scene, cam);
   const out = r.domElement.toDataURL("image/png");
   c.dispose();
