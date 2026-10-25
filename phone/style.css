@@ -191,3 +191,24 @@ h2 small { font: 600 14px var(--body); color: var(--dim); }
 .fcard .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; font: 600 12px var(--display); color: var(--dim); }
 .fcard .stats b { display: block; font-size: 22px; color: #fff; }
 .fcard .how { font-size: 14px; font-style: italic; margin-top: 8px; color: var(--dim); }
+
+/* ---- simple play screen: one big mic, the taps, the Forge, your spells ---- */
+#duel, #waiting { display: none !important; }  /* life, energy and the timer are on the big screen */
+.mic { flex-direction: column; justify-content: center; gap: 14px; margin-top: 18px; padding: 28px 16px 24px; text-align: center; border-radius: 34px; }
+.mic .orb { width: 148px; height: 148px; font-size: 54px; }
+.mic .ring { inset: -10px; }
+.mic-text { justify-items: center; }
+.mic-label { font-size: 22px; }
+.mic.on ~ .typecast { display: none; }  /* typing shows only when the mic can't listen */
+.heard { min-height: 0; margin: 14px 0 18px; padding: 0; border: none; background: none; text-align: center; font-size: 17px; color: var(--dim); }
+.heard b { font-size: 24px; }
+.forge-open { margin-bottom: 24px; }
+h2 { font-size: 17px; }
+.sub { display: none; }
+.book { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+.book::-webkit-scrollbar { display: none; }
+.spell { flex: none; min-height: 0; max-width: 62%; padding: 10px 16px; border-radius: 999px; border: 1px solid var(--tc, var(--lav)); }
+.spell .nm { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spell .ty, .spell .meta, .spell .star { display: none; }
+.spell.cooling::after { display: none; }
+.empty { flex: 1; padding: 12px; }
