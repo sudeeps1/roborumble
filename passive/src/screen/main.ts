@@ -27,6 +27,7 @@ import { Hud, type SpellInfo } from "./hud.ts";
 import { type GameEvent, RoomLink, type ServerMotion, type ServerMove, type ServerMsg, roomCode, rowsFromMotion, serverUrl, specFromMove } from "./link.ts";
 import { portrait } from "./portrait.ts";
 import { Stage } from "./stage.ts";
+import { joinQr } from "./joinqr";
 
 const params = new URLSearchParams(location.search);
 const boot = document.getElementById("boot")!;
@@ -334,6 +335,10 @@ const TAP: Record<string, Defense> = { jump: "jump", dodge_left: "dodge.left", d
 const narration: string[] = [];
 const link: RoomLink | null = online ? new RoomLink(serverUrl(params), roomCode(params), onRoom, (s) => console.info(`room ${link?.code}: ${s}`)) : null;
 if (link) console.info(`room ${link.code}: phones join at ${link.joinUrl}`);
+if (link) {
+  const qr = joinQr(link.joinUrl);
+  setInterval(() => { qr.style.display = phase === "lobby" ? "" : "none"; }, 250);
+}
 
 function onRoom(m: ServerMsg) {
   switch (m.type) {
