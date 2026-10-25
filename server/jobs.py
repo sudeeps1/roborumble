@@ -150,7 +150,7 @@ class JobQueue:
         if originality is None:
             originality = self.library.originality(g.qpos)
         fields = dict(
-            hit_frame=hit_frame(g, spec.get("hit_joint", "r_hand")),
+            hit_frame=hit_frame(g, spec.get("hit_joint", "r_hand"), spec.get("kind", "melee"), spec.get("effect", "")),
             originality=originality,
             stability=spec.get("stability") if spec.get("stability") is not None else stability_guess(g.qpos),
             duration=round(g.qpos.shape[0] / config.FPS, 2),
@@ -175,7 +175,7 @@ class JobQueue:
         g = Generated(qpos=q, joints=None)
         spec = job.spec
         fields = dict(
-            hit_frame=hit_frame(g, spec.get("hit_joint", "r_hand")),
+            hit_frame=hit_frame(g, spec.get("hit_joint", "r_hand"), spec.get("kind", "melee"), spec.get("effect", "")),
             originality=spec.get("originality") if spec.get("originality") is not None else self.library.originality(q, exclude=motion_id),
             stability=spec.get("stability") if spec.get("stability") is not None else stability_guess(q),
             duration=round(q.shape[0] / config.FPS, 2),

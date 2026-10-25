@@ -14,7 +14,7 @@ MODEL = "claude-opus-5-5"
 
 MOVE_TYPES = ["physical", "fire", "ice", "lightning", "shadow"]
 KINDS = ["melee", "projectile", "strike", "shockwave", "defend"]
-EFFECTS = ["ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "none"]
+EFFECTS = ["ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "earth_wall", "spiral_orb", "none"]
 HIT_JOINTS = ["head", "chest", "l_hand", "r_hand", "l_foot", "r_foot"]
 
 # Fairy-tale themes from CLAUDE.md, with plain combat mixed in so common shouts ("uppercut") always hit.
@@ -37,7 +37,7 @@ Fields of a move spec:
 - aliases: 3 to 5 lowercase phrases a player might actually shout for this move: the lowercase name first, then short variations and plain descriptions (for "Thunder Palm": "thunder palm", "lightning push", "shock palm"). Each alias should point clearly at this move; avoid lone generic words like "attack" or "punch".
 - type: physical | fire | ice | lightning | shadow (players see them as Might, Flame, Frost, Storm, Shadow).
 - kind: melee (a close hit with a limb) | projectile (something flies from a hand or foot to the opponent) | strike (something falls on the opponent from above, called down by the caster) | shockwave (a burst all around the caster, like a stomp or a ground slam) | defend (block, parry, brace or evade; it never hits).
-- effect: the visual the game draws. ember_orb (fire), wisp_bolt (lightning), frost_crystals (ice), moon_smoke (shadow), thorn_burst (physical: thorns and petals), fairy_dust (whimsical sparkles, any type), shockwave (a ground ring, for shockwave moves), none (a plain body hit). Usually the effect that matches the type; none suits plain combat.
+- effect: the visual the game draws. ember_orb (fire), wisp_bolt (lightning), frost_crystals (ice), moon_smoke (shadow), thorn_burst (physical: thorns and petals), fairy_dust (whimsical sparkles, any type), shockwave (a ground ring, for shockwave moves), earth_wall (stone slabs burst out of the ground in front of the caster: defend moves, best after a hand seal or a slam to the ground), spiral_orb (a spinning sphere of energy held in the right palm that bursts on impact: melee palm strikes), none (a plain body hit). Usually the effect that matches the type; none suits plain combat.
 - kimodo_prompt: the body motion only. Rules below.
 - hit_joint: the body part that delivers the hit: r_hand, l_hand, r_foot, l_foot, head (headbutt) or chest (shoulder or body charge). For a projectile, the hand or foot that throws it; for a strike, the hand that calls it down; for a shockwave, the stomping foot or the hand that slams the ground; for defend, the blocking forearm's hand (l_hand or r_hand) or chest.
 - duration: seconds, between 0.8 and 1.5. Quick jabs 0.8 to 1.0, big swings and slams 1.3 to 1.5.
@@ -155,7 +155,7 @@ class SpecModel(BaseModel):
     aliases: list[str]
     type: Literal["physical", "fire", "ice", "lightning", "shadow"]
     kind: Literal["melee", "projectile", "strike", "shockwave", "defend"]
-    effect: Literal["ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "none"]
+    effect: Literal["ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "earth_wall", "spiral_orb", "none"]
     kimodo_prompt: str
     hit_joint: Literal["head", "chest", "l_hand", "r_hand", "l_foot", "r_foot"]
     duration: float

@@ -9,7 +9,7 @@ import { KNOWN_EFFECTS, TYPE_EFFECT } from "../config";
 import type { Effect, Kind, MoveType, Player } from "../contract";
 import type { Stage } from "./stage";
 import { SPR, buildTextures, type FxTextures } from "./fx/textures";
-import { F_FLUTTER, F_ORBIT, F_TWINKLE, Particles } from "./fx/particles";
+import { F_FLUTTER, F_GROUND, F_ORBIT, F_TWINKLE, Particles } from "./fx/particles";
 import { Ribbons } from "./fx/ribbons";
 import { SWOOSH_ARC, beamPool, decalPool, fallGeometries, fallPool, swooshPool, type FallShape, type Pool, type Slot } from "./fx/meshes";
 import { Fighters, LIMBS, type FighterRef } from "./fx/fighters";
@@ -66,6 +66,8 @@ const FALL_COLOR: Record<Flavor, THREE.Color> = {
   thorn: new THREE.Color(1.1, 0.28, 0.5), wisp: new THREE.Color(4, 4, 3), fairy: new THREE.Color(4, 3.6, 2.4),
 };
 const DOWN = new THREE.Vector3(0, -1, 0);
+const EARTH_GLOW = new THREE.Color(1.9, 1.15, 0.45);
+const EARTH_LIGHT = new THREE.Color(0xffc27a);
 
 const easeOut = (k: number) => 1 - (1 - k) * (1 - k);
 const easeOutBack = (k: number) => 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2;
@@ -303,6 +305,9 @@ export class Effects {
     const dir = Math.sign(target.x - caster.x) || 1;
     const d = Math.max(0, Number.isFinite(delay) ? delay : 0.4);
     const c = caster.clone(), t = target.clone();
+    // two signature effects that replace the kind's usual flourish
+    if (move.effect === "earth_wall") return this.castEarthWall(ks, ref, c, dir, d);
+    if (move.effect === "spiral_orb") return this.castSpiralOrb(P, ks, ref, c, dir, d);
     switch (move.kind) {
       case "projectile": return this.castProjectile(P, ks, ref, c, t, dir, d);
       case "strike": return this.castStrike(fl, P, ks, ref, c, t, dir, d);
@@ -807,6 +812,146 @@ export class Effects {
         f.light.intensity = 1.2;
       }
     }
+  }
+
+  // ---------- signature effects ----------
+  /** earth_wall: hands glow while the seal is held, then on the hit frame stone slabs burst out of the ground
+   *  between the fighters, hold, and sink back. */
+  private castEarthWall(ks: number, ref: FighterRef | null, caster: THREE.Vector3, dir: number, d: number) {
+    // the seal: an earthy glow gathering between the hands until the slam
+    this.run(0, d, {
+      tick: (k, dt) => {
+        const c = this.castPoint(ref, caster, dir, 0.1, this.v);
+        this.paint.one(SPR.Dot, c.x, c.y, c.z, 0.1 + 0.25 * k, EARTH_GLOW, 1, 0.5 * k);
+        this.paint.one(SPR.Star4, c.x, c.y, c.z, 0.05 + 0.12 * k, WHITE_GOLD, 1, k, this.now * 4);
+        for (let i = 0, n = Math.floor(dt * 30 * k + Math.random()); i < n; i++) {
+          const p = this.ps.reset();
+          const a = Math.random() * Math.PI * 2, r = rand(0.25, 0.5);
+          p.x = c.x + Math.cos(a) * r; p.y = c.y + Math.sin(a) * r * 0.6; p.z = c.z + rand(-0.15, 0.15);
+          p.vx = -Math.cos(a) * r * 3; p.vy = -Math.sin(a) * r * 1.8; p.drag = 2;
+          p.sprite = SPR.Spark; p.size0 = 0.05; p.size1 = 0.015; setc(p, EARTH_GLOW, 1); p.life = rand(0.25, 0.4);
+          this.ps.emit();
+        }
+      },
+    });
+    const g = this.groundOf(ref, caster, new THREE.Vector3());
+    const wx = g.x + dir * 0.62, wz = g.z;
+    const mat = new THREE.MeshStandardMaterial({ color: 0x7a6650, roughness: 0.95, metalness: 0.02, flatShading: true,
+      emissive: 0x4a2e12, emissiveIntensity: 0.35 });
+    const group = new THREE.Group();
+    group.name = "earth-wall";
+    const slabs: { m: THREE.Mesh; h: number; delay: number }[] = [];
+    const n = 7, ux = Math.sin(0.65) * dir, uz = Math.cos(0.65); // the wall line, turned ~37 deg toward the camera
+    for (let i = 0; i < n; i++) {
+      const mid = 1 - Math.abs(i - (n - 1) / 2) / ((n - 1) / 2); // tallest in the middle
+      const h = (0.75 + 0.6 * mid + rand(0, 0.2)) * Math.sqrt(ks), wdt = rand(0.24, 0.34);
+      const geo = new THREE.BoxGeometry(rand(0.3, 0.42), h, wdt, 2, 4, 2);
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      for (let v = 0; v < pos.count; v++) { // rough-hewn: nudge every vertex, taper the top
+        const y = pos.getY(v) / h + 0.5;
+        pos.setXYZ(v, pos.getX(v) * (1 - 0.35 * y) + rand(-0.03, 0.03), pos.getY(v) + rand(-0.03, 0.03), pos.getZ(v) * (1 - 0.3 * y) + rand(-0.03, 0.03));
+      }
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat);
+      const o = (i - (n - 1) / 2) * 0.24;
+      m.position.set(wx + ux * o + rand(-0.04, 0.04), -h / 2 - 0.05, wz + uz * o);
+      m.rotation.set(rand(-0.12, 0.12), 0.65 * dir + rand(-0.25, 0.25), dir * rand(0.04, 0.16));
+      group.add(m);
+      slabs.push({ m, h, delay: Math.abs(i - (n - 1) / 2) * 0.05 + rand(0, 0.03) });
+    }
+    const rise = 0.32, hold = 1.7, sink = 0.45, total = rise + 0.2 + hold + sink;
+    this.run(d, total, {
+      begin: () => {
+        this.stage.scene.add(group);
+        this.paint.dust(wx, wz, 1.4 * ks, 0.6);
+        this.groundRing(wx, wz, 1.8 * ks, EARTH_GLOW, 0.5);
+        this.paint.flash(wx, 0.2, wz, 0.9 * ks, EARTH_GLOW, 0.6, 0.2);
+        this.light(wx, 0.6, wz, EARTH_LIGHT, 2.4 * ks, 0.35);
+        for (let i = 0; i < 70; i++) { // rubble thrown up as the stone breaks the ground
+          const p = this.ps.reset();
+          const o = rand(-0.85, 0.85); p.x = wx + ux * o + rand(-0.15, 0.15); p.y = 0.05; p.z = wz + uz * o;
+          p.vx = dir * rand(-0.6, 1.4); p.vy = rand(1.5, 4); p.vz = rand(-0.8, 0.8); p.grav = -9; p.flags = F_GROUND;
+          p.sprite = i % 3 ? SPR.Dot : SPR.Spark; p.size0 = p.size1 = rand(0.025, 0.06); p.blend = 1;
+          setc(p, i % 4 ? DUST : EARTH_GLOW, 1); p.life = rand(0.6, 1.1);
+          this.ps.emit();
+        }
+      },
+      tick: (k, dt) => {
+        const t = k * total;
+        for (const s of slabs) {
+          const up = THREE.MathUtils.clamp((t - s.delay) / rise, 0, 1);
+          const down = THREE.MathUtils.clamp((t - rise - 0.2 - hold) / sink, 0, 1);
+          s.m.position.y = -s.h / 2 - 0.05 + s.h * (up < 1 ? easeOutBack(up) : 1) - s.h * down * down;
+        }
+        if (t < rise + 0.1 || t > total - sink) { // dust skirts the base while the stone moves
+          for (let i = 0, n = Math.floor(dt * 90 + Math.random()); i < n; i++) {
+            const p = this.ps.reset();
+            const o = rand(-0.9, 0.9); p.x = wx + ux * o + rand(-0.2, 0.2); p.y = 0.04; p.z = wz + uz * o;
+            p.vx = rand(-0.5, 0.5); p.vy = rand(0.2, 0.7); p.vz = rand(-0.4, 0.4); p.drag = 1.5;
+            p.sprite = SPR.Dot; p.size0 = 0.08; p.size1 = 0.25; p.blend = 1; setc(p, DUST, 0.6); p.life = rand(0.5, 0.9);
+            this.ps.emit();
+          }
+        }
+      },
+      end: () => {
+        this.stage.scene.remove(group);
+        for (const s of slabs) s.m.geometry.dispose();
+        mat.dispose();
+      },
+    });
+  }
+
+  /** spiral_orb: a spinning sphere of energy forms in the right palm and grows until the hit frame, then
+   *  bursts outward in a spiral. */
+  private castSpiralOrb(P: Pal, ks: number, ref: FighterRef | null, caster: THREE.Vector3, dir: number, d: number) {
+    const palm = (out: THREE.Vector3) => {
+      const b = ref?.bodies.get("right_wrist_yaw_link");
+      if (b) out.setFromMatrixPosition(b.matrixWorld);
+      else this.castPoint(ref, caster, dir, 0.3, out);
+      out.x += dir * 0.09;
+      return out;
+    };
+    let spin = 0;
+    this.run(0, d + 0.06, {
+      tick: (k, dt) => {
+        const h = palm(this.v);
+        const R = (0.08 + 0.13 * Math.min(1, k * 1.3)) * Math.sqrt(ks);
+        spin += dt * 20;
+        this.paint.one(SPR.Dot, h.x, h.y, h.z, R * 2.8, P.glow, 1, 0.5);
+        this.paint.one(SPR.Dot, h.x, h.y, h.z, R * 1.5, P.core, 1, 0.8);
+        this.paint.one(SPR.Star8, h.x, h.y, h.z, R * 2.2, WHITE_GOLD, 1, 0.7, spin);
+        for (let i = 0, n = Math.floor(dt * 260 + Math.random()); i < n; i++) { // motes racing around 3 tilted rings
+          const ring = i % 3, tilt = ring * 1.05 + 0.3, a = spin * (1 + ring * 0.35) + Math.random() * Math.PI * 2;
+          const cx = Math.cos(a) * R, sy = Math.sin(a) * R;
+          const p = this.ps.reset();
+          p.x = h.x + cx; p.y = h.y + sy * Math.cos(tilt); p.z = h.z + sy * Math.sin(tilt);
+          const s = 16 * R;
+          p.vx = -Math.sin(a) * s; p.vy = Math.cos(a) * s * Math.cos(tilt); p.vz = Math.cos(a) * s * Math.sin(tilt); p.drag = 5;
+          p.sprite = SPR.Spark; p.size0 = 0.045; p.size1 = 0.01; p.stretch = 0.12;
+          setc(p, i % 2 ? P.core : P.glow, 1); p.life = rand(0.1, 0.22);
+          this.ps.emit();
+        }
+      },
+    });
+    this.run(d, 0, {
+      begin: () => {
+        const h = palm(this.v);
+        this.paint.flash(h.x, h.y, h.z, 0.3, WHITE_GOLD, 0.35, 0.1);
+        this.paint.flash(h.x, h.y, h.z, 0.5, P.glow, 0.25, 0.2);
+        this.paint.ring(h.x, h.y, h.z, 0.9, P.glow, 0.8, 0.35, 0.8);
+        this.paint.starburst(h.x, h.y, h.z, 0.45, P.glow, 0.5, 0.24);
+        for (let i = 0; i < 100; i++) { // the spiral: particles leave along a swirling cone toward the opponent
+          const a = i * 0.42, sp = rand(2.2, 5.5), r = rand(0.6, 1.4);
+          const p = this.ps.reset();
+          p.x = h.x; p.y = h.y; p.z = h.z;
+          p.vx = dir * sp; p.vy = Math.cos(a) * sp * 0.45 * r; p.vz = Math.sin(a) * sp * 0.45 * r; p.drag = 3.2;
+          p.sprite = i % 4 ? SPR.Spark : SPR.Star4; p.size0 = rand(0.03, 0.07); p.size1 = 0.01; p.stretch = 0.15;
+          setc(p, i % 5 ? P.glow : P.core, 0.8); p.life = rand(0.3, 0.55);
+          this.ps.emit();
+        }
+        this.light(h.x, h.y, h.z, P.light, 1.8, 0.3);
+      },
+    });
   }
 
   private light(x: number, y: number, z: number, c: THREE.Color, peak: number, dur: number) {

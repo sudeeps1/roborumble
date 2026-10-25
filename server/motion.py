@@ -38,11 +38,65 @@ def quality_check(g: Generated, limits: dict[int, tuple[float, float]]) -> str |
     return None
 
 
-def hit_frame(g: Generated, hit_joint: str) -> int:
-    """The frame where hit_joint moves fastest."""
+FK_BODIES = {"r_hand": "right_wrist_yaw_link", "l_hand": "left_wrist_yaw_link", "r_foot": "right_ankle_roll_link",
+             "l_foot": "left_ankle_roll_link", "chest": "torso_link", "head": "torso_link"}
+_fk = None
+
+
+def _fk_model():
+    """MuJoCo G1 for forward kinematics, or None (laptop without mujoco)."""
+    global _fk
+    if _fk is None:
+        try:
+            import mujoco
+
+            from .g1 import find_xml
+
+            m = mujoco.MjModel.from_xml_path(str(find_xml()))
+            ids = {k: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, n) for k, n in FK_BODIES.items()}
+            ids["pelvis"] = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
+            _fk = (mujoco, m, mujoco.MjData(m), ids)
+        except Exception:
+            _fk = False
+    return _fk or None
+
+
+def track(qpos: np.ndarray, joint: str) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """World positions (MuJoCo: Z up) of `joint` and the pelvis per frame, and the pelvis forward axis at frame 0."""
+    fk = _fk_model()
+    if fk is None:
+        return None
+    mujoco, m, d, ids = fk
+    pts, pel = np.zeros((len(qpos), 3)), np.zeros((len(qpos), 3))
+    fwd = np.array([1.0, 0, 0])
+    for t, row in enumerate(qpos):
+        d.qpos[:] = row
+        mujoco.mj_kinematics(m, d)
+        pts[t], pel[t] = d.xpos[ids[joint]], d.xpos[ids["pelvis"]]
+        if t == 0:
+            fwd = d.xmat[ids["pelvis"]].reshape(3, 3)[:, 0].copy()
+    fwd[2] = 0
+    return pts, pel, fwd / (np.linalg.norm(fwd) or 1)
+
+
+def hit_frame(g: Generated, hit_joint: str, kind: str = "melee", effect: str = "") -> int:
+    """The frame the move connects. Punches and projectiles: the limb's fastest push forward. Strikes from
+    above, shockwaves and ground slams: its fastest drop. Anything else: its fastest movement."""
     T = g.qpos.shape[0]
     if T < 3:
         return 0
+    tr = track(g.qpos, hit_joint if hit_joint in FK_BODIES else "r_hand")
+    if tr is not None:
+        pts, pel, fwd = tr
+        rel = pts - pel
+        if kind in ("melee", "projectile"):
+            score = np.diff(rel, axis=0) @ fwd
+        elif kind in ("strike", "shockwave") or effect == "earth_wall":
+            score = -np.diff(pts[:, 2])
+        else:
+            score = np.linalg.norm(np.diff(rel, axis=0), axis=1)
+        score = np.convolve(score, np.ones(3) / 3, mode="same")  # one jittery frame shouldn't win
+        return int(score.argmax()) + 1
     if g.joints is not None and hit_joint in HIT_JOINT_SKEL:
         p = g.joints[:, HIT_JOINT_SKEL[hit_joint]]
         # relative to the pelvis, so walking forward doesn't count as striking

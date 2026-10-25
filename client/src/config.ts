@@ -56,4 +56,4 @@ export const TYPE_COLOR: Record<MoveType, number> = { physical: 0xff7aa2, fire: 
 export const TYPE_CSS: Record<MoveType, string> = { physical: "#ff7aa2", fire: "#ff8a2a", ice: "#8fe3ff", lightning: "#fff07a", shadow: "#a98bff" };
 // Effect used when a move's `effect` is missing or unknown.
 export const TYPE_EFFECT: Record<MoveType, Effect> = { physical: "thorn_burst", fire: "ember_orb", ice: "frost_crystals", lightning: "wisp_bolt", shadow: "moon_smoke" };
-export const KNOWN_EFFECTS: Effect[] = ["ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "none"];
+export const KNOWN_EFFECTS: Effect[] = ["ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "earth_wall", "spiral_orb", "none"];

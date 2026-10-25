@@ -141,6 +141,27 @@ class Library:
         mid = self.by_prompt.get(norm_prompt(prompt))
         return mid if mid and self.has_motion(mid) else None
 
+    def refresh(self, fn) -> int:
+        """Recompute a field for every move (fn(move, qpos) -> dict of updates) and rewrite moves.jsonl."""
+        changed = 0
+        with self.lock:
+            for m in self.moves.values():
+                path = self.motion_path(m.get("motion_id") or "")
+                if not path:
+                    continue
+                try:
+                    upd = fn(m, np.asarray(json.loads(path.read_text())["qpos"], dtype=float))
+                except Exception:
+                    continue
+                if upd and any(m.get(k) != v for k, v in upd.items()):
+                    m.update(upd)
+                    changed += 1
+            if changed:
+                tmp = self.root / ".moves.tmp"
+                tmp.write_text("".join(json.dumps(m) + "\n" for m in self.moves.values()))
+                os.replace(tmp, self.root / "moves.jsonl")
+        return changed
+
     def bump(self, move_id: str) -> None:
         with self.lock:
             self.uses[move_id] = self.uses.get(move_id, 0) + 1
@@ -148,20 +169,26 @@ class Library:
 
     def all(self) -> list[dict[str, Any]]:
         with self.lock:
-            return [self.public(m) for m in self.moves.values()]
+            return [self.public(m) for m in self.moves.values() if not m.get("retired")]
+
+    def retire(self, move_id: str) -> bool:
+        """Hide a move from matching, stats and decks (kept on disk; moves.jsonl is rewritten)."""
+        return self.refresh(lambda m, q: {"retired": True} if m["id"] == move_id else None) > 0
 
     def stats(self) -> dict[str, Any]:
         with self.lock:
             by_type = {t: 0 for t in MOVE_TYPES}
             by_source: dict[str, int] = {"agent": 0, "forge": 0, "live": 0}
             for m in self.moves.values():
+                if m.get("retired"):
+                    continue
                 by_type[m.get("type", "physical")] = by_type.get(m.get("type", "physical"), 0) + 1
                 by_source[m.get("source") or "agent"] = by_source.get(m.get("source") or "agent", 0) + 1
-            return {"total": len(self.moves), "by_type": by_type, "by_source": by_source}
+            return {"total": sum(by_source.values()), "by_type": by_type, "by_source": by_source}
 
     def leaderboard(self, n: int = 10) -> list[dict[str, Any]]:
         with self.lock:
-            made = [m for m in self.moves.values() if m.get("creator") and m.get("source") in ("forge", "live")]
+            made = [m for m in self.moves.values() if m.get("creator") and m.get("source") in ("forge", "live") and not m.get("retired")]
             made.sort(key=lambda m: self.uses.get(m["id"], 0), reverse=True)
             return [{"id": m["id"], "name": m["name"], "creator": m["creator"], "uses": self.uses.get(m["id"], 0),
                      "type": m.get("type")} for m in made[:n]]

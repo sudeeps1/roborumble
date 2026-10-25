@@ -51,6 +51,14 @@ class Matcher:
             if vecs is not None:
                 self.vecs = vecs if self.vecs is None else np.vstack([self.vecs, vecs])
 
+    def remove(self, move_id: str) -> None:
+        with self.lock:
+            keep = [i for i, m in enumerate(self.ids) if m != move_id]
+            self.ids = [self.ids[i] for i in keep]
+            self.texts = [self.texts[i] for i in keep]
+            if self.vecs is not None:
+                self.vecs = self.vecs[keep] if keep else None
+
     def best(self, text: str, only: set[str] | None = None) -> tuple[str | None, float]:
         """(move id, score) of the closest name or alias; `only` limits it to some move ids."""
         q = clean(text)

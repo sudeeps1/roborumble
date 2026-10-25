@@ -48,7 +48,7 @@ export interface Sim {
 // ---------- Part 2: HTTP + room messages (ASSUMED) ----------
 export type Status = FighterState["status"];
 export type Source = "agent" | "forge" | "live";
-export type Effect = "ember_orb" | "wisp_bolt" | "frost_crystals" | "moon_smoke" | "thorn_burst" | "fairy_dust" | "shockwave" | "none";
+export type Effect = "ember_orb" | "wisp_bolt" | "frost_crystals" | "moon_smoke" | "thorn_burst" | "fairy_dust" | "shockwave" | "earth_wall" | "spiral_orb" | "none";
 export const MOVE_TYPES: MoveType[] = ["physical", "fire", "ice", "lightning", "shadow"];
 
 // The full move spec from CLAUDE.md. `play` may carry these extra fields alongside the sim's Move.

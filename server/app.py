@@ -29,7 +29,7 @@ from .narrator import Narrator
 from .rooms import Hub
 
 KINDS = {"melee", "projectile", "strike", "shockwave", "defend"}
-EFFECTS = {"ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "none"}
+EFFECTS = {"ember_orb", "wisp_bolt", "frost_crystals", "moon_smoke", "thorn_burst", "fairy_dust", "shockwave", "earth_wall", "spiral_orb", "none"}
 HIT_JOINTS = {"head", "chest", "l_hand", "r_hand", "l_foot", "r_foot"}
 IDLE_PROMPT = "a person stands in a relaxed fighting stance and sways gently while breathing"
 
@@ -51,6 +51,12 @@ async def lifespan(_: FastAPI):
     hub.loop = asyncio.get_running_loop()
     if not library.has_motion("mo_idle"):
         jobs.submit({"name": "idle", "kimodo_prompt": IDLE_PROMPT, "duration": 3.0, "_motion_only": "mo_idle"}, LIVE)
+    from .engine import Generated
+    from .motion import hit_frame
+
+    fixed = library.refresh(lambda m, q: {"hit_frame": hit_frame(Generated(q, None), m.get("hit_joint", "r_hand"),
+                                                                 m.get("kind", "melee"), m.get("effect", ""))})
+    print(f"hit frames recomputed for {fixed} moves")
     for c in json.loads((config.ROOT / "server" / "clips.json").read_text()):  # natural character animations
         if not library.has_motion(f"clip_{c['name']}"):
             queue_clip(c["name"], c["prompt"], c["duration"])
@@ -119,6 +125,16 @@ def get_move(move_id: str):
     if not m:
         raise HTTPException(404, f"no move {move_id}")
     return m
+
+
+@api.post("/move/{move_id}/retire")
+def retire_move(move_id: str):
+    """Take a move out of play (a better version replaced it). It stays on disk."""
+    if not library.get(move_id):
+        raise HTTPException(404, f"no move {move_id}")
+    library.retire(move_id)
+    matcher.remove(move_id)
+    return {"retired": move_id}
 
 
 @api.get("/deck")
@@ -343,6 +359,15 @@ def clip_list():
 @api.get("/clip/{name}")
 def clip_get(name: str):
     return _motion_file(f"clip_{name}")
+
+
+@api.delete("/clip/{name}")
+def clip_delete(name: str):
+    """Forget a clip (test variations). Its motion file stays, so moves made from it keep working."""
+    if clips.pop(name, None) is None:
+        raise HTTPException(404, f"no clip {name}")
+    CLIPS_FILE.write_text(json.dumps(clips, indent=1))
+    return {"deleted": name}
 
 
 # ---------- Forge: a move the player acted out ----------
