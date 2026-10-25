@@ -94,7 +94,7 @@ function loop() {
     if (!recording && !$("stepRecord").classList.contains("hidden")) hint(full ? "✓ I can see all of you. Tap Record, then strike your pose!"
       : upper ? "Step back a little. I can't see your legs (recording still works)."
       : pts ? "Step back so your arms and body are in view." : "I can't see you yet. Point the camera at yourself.");
-    if (pts) drawPose(ctx, pts, canvas.width, canvas.height, full ? "#7ee0a3" : "#f5d77e");
+    if (pts) drawPose(ctx, pts, canvas.width, canvas.height, full ? "#9ff5dc" : "#ffb6e6");
     if (recording && world && upper) recording.frames.push(world.map((p) => [round(p.x), round(p.y), round(p.z)]));
   };
   tick();
@@ -199,20 +199,20 @@ function playPreview(frames, type) {
   const minX = Math.min(...xs), maxX = Math.max(...xs), maxY = Math.max(...ys);
   const scale = Math.min(340 / Math.max(maxY, 1), 380 / Math.max(maxX - minX, 0.5));
   const cx = 240 - ((minX + maxX) / 2) * scale, floor = 560;
-  const color = getComputedStyle(document.documentElement).getPropertyValue(`--t-${type}`).trim() || "#f5d77e";
+  const color = getComputedStyle(document.documentElement).getPropertyValue(`--t-${type}`).trim() || "#c9b3ff";
   let f = 0, last = 0;
   const tick = (t) => {
     previewRaf = requestAnimationFrame(tick);
     if (t - last < 33) return;
     last = t;
     const P = frames[f];
-    ctx.fillStyle = "#0d1024"; ctx.fillRect(0, 0, 480, 640);
-    ctx.strokeStyle = "rgba(201,162,74,.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(240, floor + 8, 170, 26, 0, 0, 7); ctx.stroke();
+    ctx.fillStyle = "#120d3a"; ctx.fillRect(0, 0, 480, 640);
+    ctx.strokeStyle = "rgba(201,179,255,.55)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(240, floor + 8, 170, 26, 0, 0, 7); ctx.stroke();
     ctx.lineWidth = 9; ctx.lineCap = "round"; ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 18;
     for (const [a, b] of G1_BONES) {
       ctx.beginPath(); ctx.moveTo(cx + P[a][0] * scale, floor - P[a][1] * scale); ctx.lineTo(cx + P[b][0] * scale, floor - P[b][1] * scale); ctx.stroke();
     }
-    ctx.shadowBlur = 0; ctx.fillStyle = "#f3e6c4";
+    ctx.shadowBlur = 0; ctx.fillStyle = "#fbf7ff";
     const hx = (P[18][0] + P[26][0]) / 2, hy = (P[18][1] + P[26][1]) / 2; ctx.beginPath(); ctx.arc(cx + hx * scale, floor - hy * scale - 0.16 * scale, 0.09 * scale, 0, 7); ctx.fill();
     f = (f + 1) % frames.length;
     if (f === 0) last = t + 500; // a beat before it loops
