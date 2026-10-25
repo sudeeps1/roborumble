@@ -16,7 +16,7 @@
   let nick = "", room = "", player = null, ws = null, retry = 0, cooldowns = {}, left = false;
   let book = [];                       // moves shown in the spellbook
   let micOn = true, listener = null, micState = "off";
-  let held = false;  // hold to talk: the orb records exactly while it is held, so crowd noise never casts
+  let armed = false;  // tap to talk: after a tap the orb listens for one spell, then sends it by itself
   let stt = "none";                    // server speech to text; fetched before the join tap (iPhones need the mic started inside the tap)
   (function health(tries) {            // retry: one dropped answer would leave iPhones on the browser's own (flaky) recognition
     fetch(`${API}/health`).then((r) => r.json()).then((h) => { stt = h.stt || "none"; })
@@ -320,8 +320,8 @@
   // ---------- always-on mic ----------
   const MIC = {
     starting: ["Starting the mic…", "Allow the microphone if your phone asks"],
-    on: ["Hold to shout a spell", "Hold the orb, shout, then let go"],
-    hot: ["Listening…", "Let go to cast"],
+    on: ["Tap to cast a spell", "Tap the orb, then shout your spell"],
+    hot: ["Listening…", "Shout your spell now"],
     off: ["Mic off", "Tap to listen again"],
     blocked: ["Mic blocked", "Tap to try again, or allow it in your browser settings"],
     denied: ["Mic blocked", "Allow it in your browser settings, then tap here to reload"],
@@ -339,26 +339,18 @@
   }
   const orb = $("mic");
   const asleep = () => micState === "denied" || micState === "blocked" || micState === "asleep" || micState === "none" || !listener;
-  // A tap starts or wakes the mic: iPhones only let a page start audio on a tap, not on a press.
+  let armTimer = 0;
+  // Tap to talk. A tap is the one thing every phone browser (Safari too) allows to start or wake the mic.
   orb.onclick = () => {
     if (micState === "denied") return location.reload();  // the browser only asks again after a reload
-    if (asleep()) { micOn = true; startListening(); }
+    if (asleep()) { micOn = true; return startListening(); }
+    if (!listener.send) return;  // the browser's own recognition listens by itself
+    listener.resume();  // a tap keeps the phone's audio awake
+    if (armed) return listener.send();  // a second tap sends right away
+    armed = true; setMic("hot");
+    clearTimeout(armTimer);  // no sound at all for 7 s: the phone's audio is asleep
+    armTimer = setTimeout(() => { if (armed) { armed = false; setMic("asleep"); } }, 7000);
   };
-  // Holding the orb records; letting go sends it.
-  orb.addEventListener("pointerdown", (e) => {
-    if (asleep() || !listener.release) return;  // the tap above wakes it; the browser's own recognition listens by itself
-    e.preventDefault(); orb.setPointerCapture?.(e.pointerId);
-    micOn = true; held = true; setMic("hot");
-  });
-  const letGo = () => {
-    listener?.resume?.();  // letting go is a tap too, so this keeps the phone's audio awake
-    if (!held) return;
-    held = false;
-    if (listener?.release?.() === 0) return setMic("asleep");  // nothing came in: one tap wakes the mic
-    setMic("on");
-  };
-  orb.addEventListener("pointerup", letGo);
-  orb.addEventListener("pointercancel", letGo);
 
   function startListening() {
     setMic("starting");
@@ -401,7 +393,7 @@
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     ctx.resume();  // inside the tap, so iOS lets it run
     let paused = false, stopped = false, stream = null, track = null, lastAudio = Date.now();
-    let sendClip = () => 0;  // set once the mic is running: sends what was said while the orb was held
+    let sendClip = () => 0;  // set once the mic is running: ends a listen and sends what was heard
     const askedAt = Date.now();
     navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then((s) => {
       if (stopped) return s.getTracks().forEach((t) => t.stop());
@@ -409,11 +401,14 @@
       const src = ctx.createMediaStreamSource(s);
       const node = ctx.createScriptProcessor(2048, 1, 1);
       const sr = ctx.sampleRate, frameMs = (2048 / sr) * 1000;
-      let speaking = false, chunks = [], pre = [], peak = 0;
+      let floor = 0.01, chunks = [], pre = [], peak = 0, heardMs = 0, quietMs = 0, listenMs = 0;
       sendClip = () => {
-        const c = chunks; chunks = []; speaking = false;
-        if (c.length * frameMs > 350 && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(c, sr));
-        return c.length;
+        const c = chunks, heard = heardMs > 120;
+        chunks = []; armed = false; heardMs = quietMs = listenMs = 0;
+        clearTimeout(armTimer);
+        setMic("on");
+        if (heard && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(c, sr));
+        else $("micSub").textContent = "Didn't catch that. Tap and shout again";
       };
       node.onaudioprocess = (e) => {
         lastAudio = Date.now();
@@ -421,19 +416,19 @@
         const x = new Float32Array(e.inputBuffer.getChannelData(0));
         let sum = 0; for (let i = 0; i < x.length; i++) sum += x[i] * x[i];
         const rms = Math.sqrt(sum / x.length);
-        if (held) { if (!speaking) { speaking = true; chunks = [...pre]; peak = 0; } chunks.push(x); peak = Math.max(peak, rms); return; }
-        if (speaking) { pre = []; }
-        speaking = false;
-        pre.push(x); if (pre.length > 6) pre.shift();
-        return;
+        if (!armed) { floor = 0.95 * floor + 0.05 * rms; pre.push(x); if (pre.length > 6) pre.shift(); return; }
+        if (!chunks.length) { chunks = [...pre]; peak = 0; heardMs = quietMs = listenMs = 0; }
+        chunks.push(x); listenMs += frameMs; peak = Math.max(peak, rms);
+        if (rms > Math.max(0.02, floor * 2.5)) { heardMs += frameMs; quietMs = 0; } else if (heardMs) quietMs += frameMs;
+        // done: the spell, then a short pause (or 5 s at most)
+        if ((heardMs > 120 && quietMs > 700) || listenMs > 5000) sendClip();
       };
       src.connect(node); node.connect(ctx.destination);
       setMic("on");
     }).catch((err) => { if (!stopped) micError(err, askedAt); });
     return {
       pause: () => { paused = true; },
-      // let go of the orb: send what was said while it was held (a quick tap sends nothing)
-      release: () => sendClip(),
+      send: () => sendClip(),
       resume: () => { paused = false; ctx.resume(); },
       stop: () => { stopped = paused = true; stream?.getTracks().forEach((t) => t.stop()); try { ctx.close().catch(() => {}); } catch {} },
       wake: () => { if (ctx.state !== "running") ctx.resume().catch(() => {}); },
