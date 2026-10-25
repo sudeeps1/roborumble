@@ -7,3 +7,4 @@ models/
 .claude/
 tools/kimodo/__pycache__/
 tools/kimodo/out/
+tools/meshcheck/poses.json

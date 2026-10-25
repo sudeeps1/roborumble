@@ -28,6 +28,9 @@ export const CAMERA = {
   homeAzimuth: -Math.PI / 2,       // the arena's best side (camera on -Y, looking +Y)
   homePull: 0.35,                  // 0..1: how much it leans back toward home when the fighters turn away from it
   zoomOutLag: 0.22, zoomInLag: 0.85, centreLag: 0.3,
+  // nothing happening for idleAfter s: a slow orbit around the fighters, pulled in (inside the forest's
+  // stump, 4.5 m out) with a wider lens so the framing holds; any action swings it back square
+  idleAfter: 3, idleSpin: 0.16, idleDist: 3.6, idleFov: 38,
   handheld: { pos: 0.022, rot: 0.004, hz: 0.21 },
   shake: { decay: 1.6, pos: 0.05, rot: 0.017, roll: 0.02, hz: 11, max: 1 }, // lively but easy to watch: slower, smaller jolts
 };
@@ -57,6 +60,8 @@ export class Director {
   private lookZ = CAMERA.lookZ;
   private t = 0;
   private trauma = 0;
+  private lastAction = 0;
+  private idleK = 0; // 0 fighting .. 1 orbiting
   private kickV = new THREE.Vector3();
   private kickP = new THREE.Vector3();
   private punches: { at: THREE.Vector3; amount: number; t0: number; attack: number; hold: number; release: number }[] = [];
@@ -74,15 +79,20 @@ export class Director {
   }
 
   /** Adds shake: ~0.15 a jab, 0.35 a hook or a body hitting the floor, 0.6 a knockdown, 0.9 a KO. */
-  shake(amount: number) { this.trauma = Math.min(CAMERA.shake.max, this.trauma + amount); }
+  shake(amount: number) { this.trauma = Math.min(CAMERA.shake.max, this.trauma + amount); if (amount > 0.05) this.lastAction = this.t; }
+
+  /** Something happened (a cast, a defense): the idle orbit stops and the camera swings back square. */
+  wake() { this.lastAction = this.t; }
 
   /** A recoil along a hit's push (MuJoCo direction), in metres of camera travel. */
   kick(dir: ArrayLike<number>, amount: number) {
+    this.lastAction = this.t;
     this.kickV.x += dir[0] * amount * 9; this.kickV.y += dir[1] * amount * 9; this.kickV.z += dir[2] * amount * 4;
   }
 
   /** A quick zoom into a point: amount 0.1 = 10% tighter. */
   punch(at: ArrayLike<number>, amount: number, attack = 0.05, hold = 0.06, release = 0.45) {
+    this.lastAction = this.t;
     this.punches.push({ at: new THREE.Vector3(at[0], at[1], at[2]), amount, t0: this.t, attack, hold, release });
   }
 
@@ -134,8 +144,11 @@ export class Director {
       let want = Math.abs(wrap(n1 - this.az)) < Math.abs(wrap(n2 - this.az)) ? n1 : n2;
       // lean back toward the arena's best side when the fighters have turned far from it
       want = wrap(want + wrap(CAMERA.homeAzimuth - want) * CAMERA.homePull * ease((Math.abs(wrap(CAMERA.homeAzimuth - want)) - 0.5) / 1.2));
-      if (!f.down[0] && !f.down[1]) this.az = dampAngle(this.az, want, CAMERA.azimuthLag, dt);
+      if (!f.down[0] && !f.down[1] && this.idleK < 0.5) this.az = dampAngle(this.az, want, CAMERA.azimuthLag, dt);
     }
+    const idle = this.t - this.lastAction > CAMERA.idleAfter;
+    this.idleK = damp(this.idleK, idle ? 1 : 0, idle ? 1.2 : 0.35, dt);
+    if (this.idleK > 0.02) this.az = wrap(this.az + CAMERA.idleSpin * this.idleK * dt);
     // the framed span: both pelvises plus extras, measured along the screen's horizontal
     const rx = -Math.sin(this.az), ry = Math.cos(this.az); // screen-right in the world (camera looks along -[cos az, sin az])
     let lo = Infinity, hi = -Infinity, cx = 0, cy = 0;
@@ -148,12 +161,12 @@ export class Director {
     cx += (mid - cur) * rx; cy += (mid - cur) * ry;
     const halfW = (hi - lo) / 2;
     const tanH = Math.tan(THREE.MathUtils.degToRad(CAMERA.fov / 2)) * this.camera.aspect;
-    const want = THREE.MathUtils.clamp(halfW / tanH, CAMERA.minDist, CAMERA.maxDist);
+    const want = THREE.MathUtils.lerp(THREE.MathUtils.clamp(halfW / tanH, CAMERA.minDist, CAMERA.maxDist), CAMERA.idleDist, this.idleK);
     this.dist = damp(this.dist, want, want > this.dist ? CAMERA.zoomOutLag : CAMERA.zoomInLag, dt);
     this.centre.x = damp(this.centre.x, cx, CAMERA.centreLag, dt);
     this.centre.y = damp(this.centre.y, cy, CAMERA.centreLag, dt);
     this.lookZ = damp(this.lookZ, f.down[0] && f.down[1] ? CAMERA.lookZDown : f.down[0] || f.down[1] ? (CAMERA.lookZ + CAMERA.lookZDown) / 2 : CAMERA.lookZ, 0.5, dt);
-    return { az: this.az, dist: this.dist, height: CAMERA.height + CAMERA.heightPerM * this.dist, centre: this.centre.clone(), lookZ: this.lookZ, fov: CAMERA.fov };
+    return { az: this.az, dist: this.dist, height: CAMERA.height + CAMERA.heightPerM * this.dist, centre: this.centre.clone(), lookZ: this.lookZ, fov: THREE.MathUtils.lerp(CAMERA.fov, CAMERA.idleFov, this.idleK) };
   }
 
   /** KO: low and close on the fallen fighter, turned a little toward the winner. Victory: a push onto the winner. */
