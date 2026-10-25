@@ -1,7 +1,10 @@
 .venv/
 __pycache__/
 state.json
-state.tmp
+state.json.*
 log.txt
-errors.log
+# --push results (files for the client's motion viewer)
 batches/
+# dry run outputs are scratch; `git add -f` one if the team should see it
+dryrun/*
+!dryrun/.gitkeep
