@@ -1,0 +1,26 @@
+{
+  "name": "passive-rig",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/fetch-assets.mjs",
+    "setup:planner": "node scripts/fetch-assets.mjs --planner",
+    "dev": "vite",
+    "planner": "node planner/server.ts",
+    "headless": "node scripts/headless.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mujoco/mujoco": "3.17.0",
+    "onnxruntime-web": "1.30.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@types/three": "0.186.0",
+    "onnxruntime-node": "1.30.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
+  }
+}

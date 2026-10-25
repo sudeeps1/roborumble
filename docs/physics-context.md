@@ -2,8 +2,12 @@
 
 Branch `sudeep/physics`, written 2026-10-24 during HackTX. The team restarted the
 code from scratch. The concept is still Infinite Fighter (see `origin/v1:CLAUDE.md`).
-Nothing in the physics core is built yet. Claude is building the between-moves
-rig in `passive/` on this branch.
+
+**Status, 23:00:** `passive/` works end to end in the browser, at 60 fps. Two G1s run
+on SONIC with boxer footwork. They have simulated attacks, real falls, staged get-ups
+and KO. See `passive/README.md`. Its `src/core/` is the physics core described below
+(MuJoCo + SONIC, no DOM). Build the fight sim and the referee on it rather than
+starting a second one.
 
 ## The game, from the physics side
 Two Unitree G1 robots fight in real physics. Moves come from three places:
@@ -59,11 +63,15 @@ moves can knock over your own robot, and knockouts are real falls.
      `POST /api/generate {prompt, duration, diffusion_steps}` and
      `GET /api/health`. Then NVIDIA's demo page works as a free test client via
      `?backend=<server url>`.
-2. **Build the physics core**, shared by the game and the referee.
-   - MuJoCo with two G1s and one SONIC controller per robot.
-   - Physics steps every 5 ms; the controller ticks every 20 ms.
-   - Keep the DOM and three.js out of the core, so it also runs headless.
-   - Start from the version in Claude's `passive/`.
+2. **Physics core: done in `passive/src/core/`.**
+   - It has two G1s, one SONIC controller each, 5 ms physics steps and a 20 ms
+     controller tick, with no DOM.
+   - It also runs headless in Node (`scripts/fight-check.ts` simulates 22 s in 4.5 s).
+   - Your hooks into it:
+     - `Fighter.playMove(qposRows, 30)`: plays a Kimodo clip, re-based to face the opponent.
+     - `Fighter.hit(attack, from, scale)`: applies an attack as a force pulse.
+     - `Fighter.knockOut()`: limp, stays down.
+     - `Fighter.stance`: the robot's current state.
 3. **Build Balance Referee v1** before the overnight library run. If it's late,
    the library saves motions unscored and you score everything in one batch in
    the morning.
