@@ -1,0 +1,5 @@
+node_modules/
+dist/
+public/*.blend
+public/*.blend1
+__pycache__/
