@@ -102,15 +102,21 @@ Kept simple on purpose:
   - The captures cover the intro, fights, every spell kind via `?demo`, KO and victory. Exact moments
     were captured by pausing on sim events.
   - Two independent reviews looked for hard lines and harsh light.
-  - Camera motion over 25 s of AI fight: median rotation 0.2 °/s (a drift), shake up to 39 °/s on hits,
-    fewer than 1 frame in 1000 above 30 °/s, zoom punches to 10% tighter.
+  - Camera motion over 20 s of AI fight (5 hits and a knockdown), after the final shake tuning:
+    - median rotation 2.6 °/s
+    - p99 18 °/s, max 40 °/s
+    - fewer than 1 frame in 1000 above 30 °/s
+    - zoom punches to 17% tighter
+
+    Before the tuning, the same fight peaked at 120 °/s.
 
   Frame rate in the browser pane, with the rig also running on this laptop:
   - A small window: a steady 60 fps.
   - 1920x1080 at 1.5x pixel density: 45 fps (p95 frame 33 ms). The physics kept up both times (0.97x
     real time), so the cost is pixels.
-  - Screens 1600 px and wider now render at 1x density. I couldn't measure that, because the pane went
-    hidden. Check it on the real TV.
+  - Screens 1600 px and wider now render at 1x density. In headless Chrome (Metal) at 1920x1080 that runs
+    at 57-58 fps, with the physics keeping up. The browser pane itself was hidden, so check it on the real
+    TV.
 - **No sound.**
 - **The mockups and test tools are not committed.** The three mockup directions in `mockups/` were
   stopped after their first build (no judging or refinement), because you picked this look instead. The
