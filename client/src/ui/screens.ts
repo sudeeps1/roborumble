@@ -34,6 +34,8 @@ interface MatchEndView {
   n1: HTMLElement; n2: HTMLElement; w1: HTMLElement; w2: HTMLElement;
 }
 
+const ERROR_HINT = "Check that the server is running and this laptop is on the same network, then try again.";
+
 // Where the fighters stand on screen in the lobby, from stage.ts's camera: fov 38, distance ~3.67 m
 // (2.9 + 0.75 x chest gap), heads ~0.59 m either side of center. Used to hang the seat plates over them.
 const CAM_TAN = Math.tan((19 * Math.PI) / 180), CAM_DIST = 3.67, HEAD_X = 0.592;
@@ -47,6 +49,8 @@ export class Screens {
   private rematchCb: (() => void) | null = null;
   private loadingText: HTMLElement | null = null;
   private errorText: HTMLElement | null = null;
+  private errorHint: HTMLElement | null = null;
+  private errorButton: HTMLButtonElement | null = null;
   private lobby: LobbyView | null = null;
   private matchEnd: MatchEndView | null = null;
 
@@ -63,10 +67,12 @@ export class Screens {
     this.show("loading");
   }
 
-  /** Error page (e.g. server unreachable) with a retry hint. */
-  showError(text: string): void {
+  /** Error page (e.g. server unreachable) with a retry hint. The button reloads the page (same ?room=). */
+  showError(text: string, hint = ERROR_HINT, action = "Try again"): void {
     this.page("error", () => this.buildError());
     this.errorText!.textContent = text;
+    this.errorHint!.textContent = hint;
+    this.errorButton!.textContent = action;
     this.show("error");
   }
 
@@ -150,10 +156,11 @@ export class Screens {
     const panel = h("div", "err-panel parch orn-corners");
     const seal = h("div", "err-seal", "!");
     this.errorText = h("p", "err-text");
+    this.errorHint = h("p", "err-hint", ERROR_HINT);
     const retry = button("btn btn-gold", () => location.reload());
     retry.textContent = "Try again";
-    panel.append(seal, h("h1", "err-title", "Alas, the spell is broken"), art(FLOURISH, "orn"), this.errorText,
-      h("p", "err-hint", "Check that the server is running and this laptop is on the same network, then try again."), retry);
+    this.errorButton = retry;
+    panel.append(seal, h("h1", "err-title", "Alas, the spell is broken"), art(FLOURISH, "orn"), this.errorText, this.errorHint, retry);
     pg.append(panel);
     return pg;
   }
@@ -258,7 +265,7 @@ export class Screens {
     v.code.textContent = info.code || "····";
     if (info.joinUrl !== v.qrUrl) {
       v.qrUrl = info.joinUrl;
-      v.url.textContent = info.joinUrl.replace(/^https?:\/\//, "");
+      v.url.textContent = info.joinUrl.replace(/^http:\/\//, ""); // keep https://: typed bare, phones try http first
       v.qrBox.classList.remove("failed");
       toCanvas(v.qr, info.joinUrl, { margin: 1, scale: 8, errorCorrectionLevel: "M", color: { dark: "#2b1d0eff", light: "#f8efd8ff" } })
         .then(() => { v.qr.style.width = ""; v.qr.style.height = ""; }) // qrcode sets pixel sizes inline; CSS sizes it

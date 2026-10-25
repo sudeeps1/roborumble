@@ -12,8 +12,12 @@ export const STATS_POLL_MS = 5000;
 export const STATE_PUSH_MS = 100; // game -> phones `state` rate
 
 // Where phones go to join. {code} is replaced with the room code. Must be reachable from a phone, so not localhost.
-export const JOIN_URL = params.get("join") ?? import.meta.env.VITE_JOIN_URL ?? `${location.protocol}//${location.hostname}:8000/phone/?room={code}`;
-// Fixed room code from ?room=ABCD, otherwise a random one per page load.
+// A built client is served by the game server (or Caddy) next to /phone/, so it defaults to its own origin;
+// the dev server guesses the game server on :8000 of this host.
+export const JOIN_URL = params.get("join") ?? import.meta.env.VITE_JOIN_URL
+  ?? (import.meta.env.PROD ? `${location.origin}/phone/?room={code}` : `${location.protocol}//${location.hostname}:8000/phone/?room={code}`);
+// Fixed room code from ?room=ABCD, otherwise a random one. main.ts writes it back into the URL, so a reload
+// (or a crashed tab coming back) rejoins the same room and the phones keep their seats.
 export const ROOM_CODE = (params.get("room") ?? randomCode()).toUpperCase();
 
 export const ROUND_SECONDS = 60;
@@ -48,7 +52,9 @@ export const CHARACTERS: CharacterDef[] = [
   { id: "hush", name: "Hush", title: "the Moon Wolf", costume: "wolf hood, starry night cloak, violet glow", strongType: "shadow", color: 0x2a2838, glow: 0xb47cff },
 ];
 export const characterById = (id: string): CharacterDef => CHARACTERS.find((c) => c.id === id) ?? CHARACTERS[0];
-export const DEFAULT_CHARACTERS: Record<Player, CharacterId> = { 1: "bramble", 2: "hush" };
+// Neither default deals 0.5x physical: most Forge moves and keyword wildcards come out physical, and with
+// Thorn Knight vs Moon Wolf a judge on P2 did a quarter of P1's damage with them (9 vs 36 for a roundhouse kick).
+export const DEFAULT_CHARACTERS: Record<Player, CharacterId> = { 1: "flicker", 2: "rime" };
 
 // ---------- move types: in-game names (CLAUDE.md "Look and feel"); code keeps the ids ----------
 export const TYPE_NAME: Record<MoveType, string> = { physical: "Might", fire: "Flame", ice: "Frost", lightning: "Storm", shadow: "Shadow" };

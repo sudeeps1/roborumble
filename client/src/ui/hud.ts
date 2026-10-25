@@ -238,6 +238,8 @@ export class Hud {
   flashMove(p: Player, move: MoveSpec): void {
     if (!move) return;
     this.drop(this.flash[p], true);
+    this.drop(this.charge[p], true); // a fading "Summoning…" would show through the new name
+    this.drop(this.fizz[p], true);
     const type: MoveType = move.type;
     const el = h("div", `flash p${p} ty-${type}`);
     el.style.setProperty("--tc", TYPE_CSS[type] ?? "#fff4d6");
@@ -306,6 +308,11 @@ export class Hud {
     this.fizz[p] = t;
     this.place();
     t.timer = window.setTimeout(() => this.drop(t, true), FIZZLE_MS);
+  }
+
+  /** Clears move-name flashes and fizzles (round over). Charging pills go away with their charge. */
+  clearFloating(): void {
+    for (const t of [...this.tracked]) if (t.kind !== "charge") this.drop(t, true);
   }
 
   /** Damage number at a screen point. */

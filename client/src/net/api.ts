@@ -13,11 +13,16 @@ export interface Api {
   job(id: string): Promise<JobResult>;
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(API + path);
-  if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+// Every request gives up after a while: a request that hangs on venue Wi-Fi would otherwise stall its caller
+// for minutes (the library counter's poll loop, the idle motion at boot).
+async function getJson<T>(path: string, timeoutMs = 8000): Promise<T> {
+  const res = await fetch(API + path, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw Object.assign(new Error(`GET ${path} -> ${res.status}`), { status: res.status });
   return res.json() as Promise<T>;
 }
+
+/** HTTP status of an error thrown by the API (undefined for network errors and timeouts). */
+export const httpStatus = (e: unknown): number | undefined => (e as { status?: number } | null)?.status;
 
 export function httpApi(): Api {
   const motions = new Map<string, Promise<Motion>>();
