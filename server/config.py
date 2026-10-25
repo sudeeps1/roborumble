@@ -41,4 +41,4 @@ CLAUDE_MODEL = "claude-opus-5-5"
 
 # Static apps served by this process (Caddy can serve them instead in production).
 CLIENT_DIST = Path(_env("CLIENT_DIST", str(ROOT / "client" / "dist")))
-PHONE_DIR = Path(_env("PHONE_DIR", str(ROOT / "phone" / "dist")))
+PHONE_DIR = Path(_env("PHONE_DIR", str(ROOT / "phone")))  # plain HTML/JS, no build step

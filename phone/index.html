@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0d1024">
+  <title>Infinite Fighter · Spellbook</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="sky"></div>
+
+  <!-- Join -->
+  <section id="join" class="screen">
+    <div class="sigil">✦</div>
+    <h1>Infinite Fighter</h1>
+    <p class="tag">Every move you invent teaches a real robot how to move.</p>
+    <div class="card">
+      <label for="nick">Your name, brave one</label>
+      <input id="nick" maxlength="16" autocomplete="off" placeholder="e.g. Pip">
+      <label for="room">Room code</label>
+      <input id="room" maxlength="8" autocomplete="off" placeholder="ABCD">
+      <button id="joinBtn" class="gold">Enter the fairy ring</button>
+      <p class="hint">Your mic stays on while you play: just shout your spells.</p>
+    </div>
+  </section>
+
+  <!-- Play -->
+  <section id="play" class="screen hidden">
+    <header class="top">
+      <div>
+        <div class="who" id="who">Pip</div>
+        <div class="seat" id="seat">Joining…</div>
+      </div>
+      <div class="roomtag">Room <b id="roomCode">ABCD</b></div>
+    </header>
+
+    <div class="bars">
+      <div class="bar"><span>Life</span><i id="hp"></i></div>
+      <div class="bar energy"><span>Energy</span><i id="en"></i></div>
+    </div>
+
+    <button id="mic" class="mic on" aria-pressed="true">
+      <span class="orb"><span class="ring"></span><span class="ring r2"></span>🎙</span>
+      <span class="mic-label" id="micLabel">Listening… shout a spell!</span>
+    </button>
+
+    <div class="heard" id="heard"><em>Say “uppercut”, “fireball”… or invent something new.</em></div>
+
+    <div class="defend">
+      <button data-tap="dodge_left">⟵ Dodge</button>
+      <button data-tap="jump">Jump</button>
+      <button data-tap="block">Block</button>
+      <button data-tap="dodge_right">Dodge ⟶</button>
+    </div>
+
+    <h2>Your Spellbook <small id="bookCount"></small></h2>
+    <p class="sub">Moves you invented or cast. Tap one to cast it.</p>
+    <div class="book" id="book"></div>
+  </section>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

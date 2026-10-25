@@ -286,8 +286,8 @@ async def voice_shout(room: str = Form(...), player: int = Form(...), loudness: 
         except voice.SttError as e:
             raise HTTPException(503, str(e))
         stt_ms = round((time.time() - t0) * 1000)
-    if not text:
-        return JSONResponse({"result": "silence", "transcript": ""}, status_code=200)
+    if len(text) < 3:  # a cough or a stray syllable from the always-on mic
+        return JSONResponse({"result": "silence", "transcript": text}, status_code=200)
     out = await shout(room, player, text, max(0.0, min(1.0, loudness)))
     return {"transcript": text, "stt_ms": stt_ms, **out}
 
