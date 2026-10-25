@@ -15,6 +15,8 @@ export { ringFlare } from "./arena/ring";
 
 export interface Arena {
   update(t: number, dt: number): void;
+  /** After a WebGL context loss: re-bake what lived only in GPU memory (the environment map). */
+  restore(): void;
 }
 
 /** Builds the arena into stage.scene (three.js frame, Y up). Owns all scene lighting and fog. */
@@ -26,7 +28,7 @@ export function buildArena(stage: Stage): Arena {
   // shared uniforms: one write per frame drives every animated material
   const u: ParticleUniforms = { time: { value: 0 }, pixelRatio: { value: stage.renderer.getPixelRatio() }, pxScale: { value: 600 } };
 
-  buildLights(stage, root);
+  const lights = buildLights(stage, root);
   buildSky(root, u.time, u.pixelRatio);
   buildGround(root, u.time, Math.min(8, stage.renderer.capabilities.getMaxAnisotropy()));
   buildForest(root, u.time);
@@ -42,6 +44,9 @@ export function buildArena(stage: Stage): Arena {
       u.pixelRatio.value = stage.renderer.getPixelRatio();
       stage.renderer.getDrawingBufferSize(buf);
       u.pxScale.value = buf.y / (2 * Math.tan(THREE.MathUtils.degToRad(stage.camera.fov) / 2));
+    },
+    restore() {
+      lights.rebuildEnv();
     },
   };
 }

@@ -144,8 +144,12 @@ export class RobotView {
     for (const b of state.bodies) {
       const g = this.bodies.get(b.name);
       if (!g) continue;
-      g.position.set(b.pos[0], b.pos[1], b.pos[2]);
-      g.quaternion.set(b.quat[1], b.quat[2], b.quat[3], b.quat[0]);
+      const p = b.pos, q = b.quat;
+      // One NaN from the sim would hide the body and, through the camera that follows it, the whole stage
+      // for good. Keep the last good pose instead.
+      if (!p || !q || !Number.isFinite(p[0] + p[1] + p[2] + q[0] + q[1] + q[2] + q[3])) continue;
+      g.position.set(p[0], p[1], p[2]);
+      g.quaternion.set(q[1], q[2], q[3], q[0]);
     }
     this.root.updateMatrixWorld(true);
 
