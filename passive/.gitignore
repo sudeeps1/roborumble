@@ -6,3 +6,4 @@ public/human/
 models/
 .claude/
 tools/kimodo/__pycache__/
+tools/kimodo/out/

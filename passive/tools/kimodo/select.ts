@@ -18,7 +18,7 @@ const noteOf = (r: Row) => (Array.isArray(r.notes) ? r.notes.join("; ") : String
 // the planner's strike keys (motion.ts PUNCH): what a clip without its own hit frame was scored against
 const PUNCH_KEY: Record<string, number> = { leftJab: 0.32, rightJab: 0.32, leftHook: 0.56, rightHook: 0.56 };
 const argv = process.argv.slice(2);
-const opt = (k: string, d = "") => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
+const opt = (k: string, d = "") => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] ?? d : d; };
 const VALUED = new Set(["--baseline", "--keep", "--variants", "--lenient"]);
 const [outDir, ...reports] = argv.filter((a, i) => !a.startsWith("--") && !VALUED.has(argv[i - 1]));
 if (!outDir || !reports.length) { console.log("usage: node tools/kimodo/select.ts OUTDIR score.json [more...] [--baseline b.json] [--keep 2] [--variants 1] [--lenient keys]"); process.exit(1); }
@@ -97,7 +97,8 @@ for (const m of motions) {
   // the report shows the pick, else the best passing one, else the best failing one (why nothing passed)
   const best = picks[0] ?? ok[0] ?? [...all].sort((x, y) => y.score - x.score)[0], vs = picks[0] && b ? picks[0].score - b.score : NaN;
   const none = ok.length ? `none: planner stays (best ${ok[0].score.toFixed(0)} is too far under it)` : "none: planner stays";
-  lines.push(`| ${m} | ${picks.map((r) => `${r.job ?? basename(r.file)}/${r.sample ?? ""}`).join(", ") || none} | ${best ? `${best.score.toFixed(0)}${ok.length ? "" : " (fails)"}` : "-"} | ${b ? `${b.score.toFixed(0)}${b.pass ? "" : " (fails)"}` : "-"} | ${Number.isFinite(vs) ? `${vs >= 0 ? "+" : ""}${vs.toFixed(0)}` : "-"} | ${ok.length}/${all.length} | ${said(best)} | ${said(b)} |`);
+  const why = !best || ok.length ? "" : best.pass ? ` (fist ${fist(best).toFixed(1)} m/s)` : " (fails)";
+  lines.push(`| ${m} | ${picks.map((r) => `${r.job ?? basename(r.file)}/${r.sample ?? ""}`).join(", ") || none} | ${best ? `${best.score.toFixed(0)}${why}` : "-"} | ${b ? `${b.score.toFixed(0)}${b.pass ? "" : " (fails)"}` : "-"} | ${Number.isFinite(vs) ? `${vs >= 0 ? "+" : ""}${vs.toFixed(0)}` : "-"} | ${ok.length}/${all.length} | ${said(best)} | ${said(b)} |`);
 }
 for (const [name, s] of out) writeFileSync(join(outDir, name), s);
 writeFileSync(join(outDir, "index.json"), JSON.stringify(index, null, 1));

@@ -84,6 +84,8 @@ export const TUNE = {
   koSlump: 1.2,       // s a KO'd body folds before it goes limp
   maxClip: 5,         // s, longest clip playMove accepts
   reanchor: 0.25,     // m the motion may drift from the body before it is moved back
+  stepLean: 0.25,     // rad tilted past the motion: footwork holds the guard instead of stepping
+  dodgeLean: 0.6,     // s a dodge's lean overlay holds before it eases out
   blockArc: (110 * Math.PI) / 180, // a block covers strikes coming from within this of where the pelvis points
   // Guard tuck: joint offsets (rad, MuJoCo signs) added to the motion's arms while idle, staggered
   // or defending, eased in and out over `ease` s (see updateOverlays). The planner's guard flares
@@ -438,7 +440,11 @@ export class Fighter {
     // directions are taken from the line to the opponent: that's where the attack comes from
     const [ox, oy] = this.facingOpponent(), f = [ox, oy, 0], left = [-oy, ox, 0];
     this.effects = this.effects.filter((e) => e.tag !== "defense");
-    const add = (e: Omit<Effect, "tag" | "t" | "dur">) => this.effects.push({ tag: "defense", t: 0, dur, ...e });
+    // a dodge's lean is a slip, not a pose to hold: held 1.5 s while the feet step it drifts from
+    // 0.3 to 0.75 rad and tips the fighter over, so it eases out after TUNE.dodgeLean s (the dodge
+    // itself, what the rules evade with, lasts the whole defense)
+    const lean = kind.startsWith("dodge") ? Math.min(dur, TUNE.dodgeLean) : dur;
+    const add = (e: Omit<Effect, "tag" | "t" | "dur">) => this.effects.push({ tag: "defense", t: 0, dur: lean, ...e });
     switch (kind) {
       case "block":
         add({ attack: 0.08, release: 0.15, tilt: { axis: this.tiltAxis(f), angle: 0.08 },
@@ -903,7 +909,13 @@ export class Fighter {
     const [near, far] = oppDown ? TUNE.rangeDown : TUNE.range;
     let name: MotionName = "step", mx = 0, my = 0, speed = 0.35;
     const r = Math.hypot(me[0], me[1]);
-    if (engaged && dist > 0.6) {
+    // still leaning out of a dodge or a shove (more than the motion asks): settle in the guard
+    // before stepping anywhere; a step taken leaning 40 deg over is a fall
+    const fr = this.ref.current(), lean = tiltOf(this.world.rootQuat(this.robot)) - tiltOf([fr[3], fr[4], fr[5], fr[6]]);
+    if (lean > TUNE.stepLean) {
+      name = "guard";
+      this.intent = "finding balance";
+    } else if (engaged && dist > 0.6) {
       // an attack is coming: footwork doesn't run from it (getting away is a defense, defend())
       name = "guard";
       this.intent = "guard up";

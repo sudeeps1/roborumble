@@ -7,14 +7,33 @@ it -> `select.ts` keeps the best passing ones that aren't clearly worse than the
 `public/clips-everyday/` (index.json + clips + report.md), which the rig loads.
 
 ## Pipeline
-On the GPU box (`ubuntu@44.198.171.168`, A10G; one GPU job at a time through `~/gpu`, a flock wrapper):
+The one command, from the laptop (it only runs ssh/rsync; generation and physics run on the hosts):
+```
+tools/kimodo/run-all.sh ubuntu@44.198.171.168 [more GPU hosts...]   # --help for the options
+```
+It merges `everyday.json` + `everyday_chars.json`, syncs passive/ to each GPU host, checks it (CUDA, cached
+weights, a kgen dry run), runs kgen shard i/n on host i in parallel, gathers the clips on the scoring
+host (the first host; `--score-host`), scores them there with clip-check in 6 shards together with a
+frozen copy of the published library (a run can't make a motion worse) and the planner baseline, runs
+`select.ts` (guard top 2, get-ups top 2 per lying pose, other motions the best one: `--keep`/`--variants`;
+`--lenient dodge.back` by default), then backs up `public/clips-everyday/` to `tools/kimodo/out/RUN/prev` and publishes the new library
+(refused if the laptop's library changed meanwhile; `--no-publish` stages it in `tools/kimodo/out/RUN/pub`).
+Jobs run detached on the hosts, so a dropped ssh only stops the waiting: rerun with `--run RUN --from score|select`
+(don't edit run-all.sh while it runs: bash reads it as it goes). kgen's `--shard` is 0-based, clip-check's 1-based.
+Smoke test without the text encoder: `--no-text --only guard.a,punch_rightJab.a --samples 2 --shards 3 --no-current`.
+select.ts sets each punch's `meta.hit_frame` from when its fist really landed in the physics, so
+hitframes.py (kinematic: furthest reach) is not part of it.
+
+The steps by hand, on the GPU box (`ubuntu@44.198.171.168`, A10G; one GPU job at a time through `~/gpu`, a flock wrapper):
 ```
 BOXDIR=rr/gen tools/kimodo/sync-box.sh ubuntu@44.198.171.168 --setup      # copy passive/ there (first time --setup)
 ssh ubuntu@44.198.171.168 'cd ~/rr/gen && ~/gpu ~/kvenv/bin/python tools/kimodo/kgen.py tools/kimodo/everyday.json --out ~/gen/runN'
 ssh ubuntu@44.198.171.168 'cd ~/rr/gen && tools/kimodo/score-box.sh ~/gen/runN 3'   # clip-check in shards; ORT_THREADS=1-2, <= 3-4 sims (1.8 GB each)
-node tools/kimodo/select.ts OUT ~/gen/runN/score.json --baseline ~/gen/runN/score/baseline.json --keep 2
-~/kvenv/bin/python tools/kimodo/hitframes.py public/g1/g1_29dof.xml OUT/punch_*.json   # punch strike frame = furthest reach
+node tools/kimodo/select.ts OUT ~/gen/runN/score.json --baseline ~/gen/runN/score/baseline.json --keep 2 --variants 2 --lenient dodge.back
 ```
+select.ts sets each punch's `meta.hit_frame` to when its fist really arrived in the scoring runs.
+(`hitframes.py` sets it to the furthest reach instead, by kinematics only: for a punch clip that
+was never scored.)
 then copy OUT to `public/clips-everyday/`. ~0.4-1 s of GPU per sample; scoring 5-40 s per candidate.
 - **Characters:** a job with `meta.character` (and motion `step.forward.knight`) is scored under its
   base key and published as `<key>.<character>`; ClipSource prefers it for that fighter.
