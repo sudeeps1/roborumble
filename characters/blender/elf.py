@@ -183,3 +183,4 @@ class Elf(HairMixin, OutfitMixin):
 
         return custom(fn, root - L - 0.01, root + L + 0.01, mat=M["skin"], part=P_["spine"])
 
+Character = Elf

@@ -17,11 +17,14 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import g1  # noqa: E402
 import sdf  # noqa: E402
+import importlib  # noqa: E402
 from elf import Elf, MATS, M, PARTS, P_, COLORS  # noqa: E402
 from rig import Rig  # noqa: E402
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 FAST = "--fast" in argv
+# --char NAME: module characters/blender/NAME.py with a `Character` class (an Elf subclass); default: the elf
+CHAR = argv[argv.index("--char") + 1] if "--char" in argv else "elf"
 ONLY = argv[argv.index("--only") + 1].split(",") if "--only" in argv else None
 PLAIN = "--plain" in argv   # debug: grey material, no vertex colors
 RENDERS = Path(argv[argv.index("--renders") + 1]) if "--renders" in argv else None
@@ -48,32 +51,45 @@ def ctx():
     area = next((a for a in WIN.screen.areas if a.type == "VIEW_3D"), WIN.screen.areas[0])
     return dict(window=WIN, area=area, scene=scene, view_layer=VIEW_LAYER)
 W = g1.fk(g1.BIND)
-elf = Elf(W)
+elf = getattr(importlib.import_module(CHAR), "Character", Elf)(W)
+if hasattr(elf, "colors"):
+    COLORS = {**COLORS, **elf.colors}
+USE_CARDS = getattr(elf, "hair_cards", True)
 
 # ---------------------------------------------------------------- sculpt
 q = 2.0 if FAST else 1.0
 log("building sdf")
 head_node = elf.head()
 hair_cap, tie_ring = elf.hair()
-head_all = sdf.union(head_node, hair_cap, k=0.003)
+head_all = sdf.union(head_node, hair_cap, k=0.003) if hair_cap is not None else head_node
 head_all, gem = elf.circlet(head_all)
-head_all = sdf.union(head_all, gem, tie_ring, k=0.0)
-body_node = sdf.union(elf.outfit(elf.body()), elf.collar(), k=0.006)
+head_all = sdf.union(*[n for n in (head_all, gem, tie_ring) if n is not None], k=0.0)
+collar = elf.collar()
+body_node = elf.outfit(elf.body())
+if collar is not None:
+    body_node = sdf.union(body_node, collar, k=0.006)
 pony_node, pony_pts = elf.ponytail()
-flaps = elf.flaps()
+flaps = elf.flaps() or {}
 pauldron = elf.pauldron()
 runes = elf.runes()
-everything = sdf.union(body_node, head_all, pony_node, pauldron, *[f[0] for f in flaps.values()])
+everything = sdf.union(*[n for n in (body_node, head_all, pony_node, pauldron) if n is not None],
+                       *[f[0] for f in flaps.values()])
 
 pieces = {}  # name -> dict(node, h, clip, target faces, kind)
-pieces["Body"] = dict(node=body_node, h=0.0021 * q, clip=("below", 1.175), faces=70000)
-pieces["Head"] = dict(node=head_all, h=0.00072 * q, clip=("above", 1.015), faces=46000,
+pieces["Body"] = dict(node=body_node, h=0.0021 * q, clip=("below", 1.175), faces=30000)
+pieces["Head"] = dict(node=head_all, h=0.00072 * q, clip=("above", getattr(elf, "head_clip", 1.015)), faces=20000,
                       lo=elf.H(-0.16, -0.16, -0.23), hi=elf.H(0.14, 0.16, 0.17))
-pieces["Ponytail"] = dict(node=pony_node, h=0.0011 * q, faces=9000)
-pieces["Pauldron"] = dict(node=pauldron, h=0.0008 * q, faces=8000)
-pieces["Runes"] = dict(node=runes, h=0.00045 * q, faces=14000)
-for name, (node, root, length) in flaps.items():
-    pieces[f"Flap_{name}"] = dict(node=node, h=0.0009 * q, faces=2500)
+for name, node, pc in (("Ponytail", pony_node, dict(h=0.0011 * q, faces=6000)),
+                       ("Pauldron", pauldron, dict(h=0.0008 * q, faces=5000)),
+                       ("Runes", runes, dict(h=0.00045 * q, faces=8000))):
+    if node is not None:
+        pieces[name] = dict(node=node, **pc)
+# a character can add more rigid or spring pieces: {name: dict(node=, h=, faces=, bone= or chain=)}
+EXTRA = elf.extra_pieces() if hasattr(elf, "extra_pieces") else {}
+for name, spec in EXTRA.items():
+    pieces[name] = dict(node=spec["node"], h=spec.get("h", 0.0009) * q, faces=spec.get("faces", 4000))
+for name, (node, root, length, *_d) in flaps.items():
+    pieces[f"Flap_{name}"] = dict(node=node, h=0.0009 * q, faces=1800)
 
 
 def make_mesh(name, verts, faces):
@@ -419,7 +435,7 @@ def material(name):
 
 # --- hair cards: hair_cards.py owns these objects (UV'd strand cards with their own material) ---
 import hair_cards  # noqa: E402
-CARDS = hair_cards.build(elf, scene, pony_pts, log) if not ONLY or any(n.startswith("Hair") for n in ONLY) else {}
+CARDS = hair_cards.build(elf, scene, pony_pts, log) if USE_CARDS and (not ONLY or any(n.startswith("Hair") for n in ONLY)) else {}
 # --- end hair cards ---
 
 log("painting")
@@ -438,7 +454,7 @@ for name, ob in objs.items():
     me.polygons.foreach_set("material_index", idx)
     me.update()
     # strand direction for the hair shader (hair_cards.flow owns the field); exported as glTF attribute _FLOW
-    fl = hair_cards.flow(elf, mesh_arrays(ob)[0], name)
+    fl = hair_cards.flow(elf, mesh_arrays(ob)[0], name) if USE_CARDS else None
     if fl is not None:
         at = me.attributes.new("_FLOW", "FLOAT_VECTOR", "POINT")
         at.data.foreach_set("vector", np.asarray(fl, np.float32).ravel())
@@ -446,18 +462,19 @@ for name, ob in objs.items():
 # ---------------------------------------------------------------- rig
 log("rigging")
 rig = Rig(W, elf)
-pony_names, pony_joints = rig.add_chain("hair", "head", pony_pts, 5)
+pony_names, pony_joints = rig.add_chain("hair", "head", pony_pts, 5) if pony_pts is not None else ([], [])
 flap_chains = {}
-for name, (node, root, length) in flaps.items():
-    # chain straight down the flap's long axis (matches leaf_plate in elf.py)
+for name, (node, root, length, *d_opt) in flaps.items():
+    # chain straight down the flap's long axis (matches leaf_plate in elf.py); other characters pass a direction
     dirs = {"front": (0.12, 0, -1), "back": (-0.16, 0, -1), "left": (0.06, 0.30, -1), "right": (0.06, -0.30, -1)}
-    d = np.asarray(dirs[name], float)
+    d = np.asarray(d_opt[0] if d_opt else dirs[name], float)
     d /= np.linalg.norm(d)
     pts = [root + d * length * t for t in np.linspace(0, 1, 6)]
     flap_chains[name] = rig.add_chain(f"flap_{name}", "pelvis", pts, 2)
 
-arm_data = bpy.data.armatures.new("ElfRig")
-arm_ob = bpy.data.objects.new("ElfRig", arm_data)
+RIG_NAME = CHAR.capitalize() + "Rig"
+arm_data = bpy.data.armatures.new(RIG_NAME)
+arm_ob = bpy.data.objects.new(RIG_NAME, arm_data)
 scene.collection.objects.link(arm_ob)
 VIEW_LAYER.objects.active = arm_ob
 with bpy.context.temp_override(**ctx()):
@@ -485,6 +502,14 @@ def weights_for(ob):
         return hair_cards.weights(name, P, rig, pony_joints, pony_names)
     if name in ("Head", "Eye_L", "Eye_R"):
         return rig.spine_weights(P)
+    if name in EXTRA:
+        if EXTRA[name].get("weights") == "skirt":
+            # skirt: pelvis at the waist, sliding onto both thighs (by side) toward the hem
+            t = np.clip((0.86 - P[:, 2]) / 0.55, 0, 1) ** 0.8
+            side = 0.5 + 0.5 * np.tanh(P[:, 1] / 0.07)
+            return {"pelvis": 1 - 0.75 * t, "left_hip_yaw_link": 0.75 * t * side,
+                    "right_hip_yaw_link": 0.75 * t * (1 - side)}
+        return {EXTRA[name].get("bone", "torso_link"): np.ones(nv)}
     if name == "Pauldron":
         return {"left_shoulder_roll_link": np.ones(nv)}
     if name == "Runes":
@@ -558,7 +583,7 @@ for name, ob in objs.items():
     wd = weights_for(ob)
     if name == "Body":
         wd = smooth_weights(ob, wd, iters=8)
-    elif name in ("Ponytail",) or name.startswith("Flap_"):
+    elif name in ("Ponytail", "Skirt") or name.startswith("Flap_"):
         wd = smooth_weights(ob, wd, iters=3)
     apply_weights(ob, wd)
     log(f"  weights {name}: {len(wd)} bones")
@@ -575,7 +600,7 @@ spring_params = {"hair": dict(stiffness=0.18, damping=0.26, gravity=0.6, radius=
                  "flap_left": dict(stiffness=0.3, damping=0.2, gravity=0.5, radius=0.01),
                  "flap_right": dict(stiffness=0.3, damping=0.2, gravity=0.5, radius=0.01)}
 for sp in rig.springs:
-    meta["springs"].append({**sp, **spring_params[sp["name"]]})
+    meta["springs"].append({**sp, **spring_params.get(sp["name"], dict(stiffness=0.25, damping=0.22, gravity=0.5, radius=0.01))})
 # collision capsules the springs stay out of (bone, local head/tail along the bone, radius)
 # Thigh capsules are slimmer than the thigh itself so the side flaps start clear of them at rest; the inner
 # "lap" capsules catch the front flap when a knee comes up.
@@ -593,7 +618,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 for ob in scene.objects:
     ob.select_set(ob.name in objs or ob == arm_ob, view_layer=VIEW_LAYER)
 VIEW_LAYER.objects.active = arm_ob
-glb = OUT / "elf.glb"
+glb = OUT / f"{CHAR}.glb"
 with bpy.context.temp_override(**ctx()):
   bpy.ops.export_scene.gltf(filepath=str(glb), export_format="GLB", use_selection=True, export_yup=True,
                           export_skins=True, export_animations=False, export_extras=True,
@@ -601,7 +626,7 @@ with bpy.context.temp_override(**ctx()):
                           export_apply=False, export_def_bones=False, export_rest_position_armature=True)
 log(f"wrote {glb} ({glb.stat().st_size / 1e6:.1f} MB)")
 with bpy.context.temp_override(**ctx()):
-    bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "elf.blend"), copy=True)
+    bpy.ops.wm.save_as_mainfile(filepath=str(OUT / f"{CHAR}.blend"), copy=True)
 
 # ---------------------------------------------------------------- previews
 if RENDERS:

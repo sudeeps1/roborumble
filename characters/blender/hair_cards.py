@@ -22,6 +22,7 @@ import elf_hair
 TEX_W, TEX_H, NCOL = 1024, 1024, 8
 DENSE, DENSE_B, CLUMP, CLUMP_B, CAP, CAP_B, WISP, SPLAY = range(NCOL)
 TINT = (204, 210, 226)          # sRGB strand tint (vertex color); the texture adds per-strand variation
+CUR_TINT = [TINT]                # per character: build() sets it from elf.hair_tint
 ALPHA_CUT = 0.42                 # glTF alphaMode MASK cutoff
 SEED = 23
 
@@ -262,7 +263,7 @@ class Cards:
         me.normals_split_custom_set_from_vertices(N.tolist())
         at = me.attributes.new("_FLOW", "FLOAT_VECTOR", "POINT")
         at.data.foreach_set("vector", FL.astype(np.float32).ravel())
-        rgb = _lin(TINT)[None, :] * sh[:, None]
+        rgb = _lin(CUR_TINT[0])[None, :] * sh[:, None]
         col = me.color_attributes.new("Col", "FLOAT_COLOR", "POINT")
         col.data.foreach_set("color", np.concatenate([rgb, np.ones((len(rgb), 1))], 1).astype(np.float32).ravel())
         me.color_attributes.active_color = col
@@ -789,6 +790,7 @@ def wisp_cards(elf, cap, pony, head_cards, pony_cards_, rng, log):
 # ---------------------------------------------------------------- hooks
 
 def build(elf, scene, pony_pts, log):
+    CUR_TINT[0] = getattr(elf, "hair_tint", TINT)
     """-> {object name: bpy object}"""
     log("hair cards")
     rng = np.random.default_rng(SEED)
