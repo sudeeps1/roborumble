@@ -8,7 +8,7 @@ import { tiltOf } from "../core/math.ts";
 import { HttpPlanner, Mode } from "../core/planner.ts";
 import { SonicPolicy } from "../core/sonic.ts";
 import { World } from "../core/world.ts";
-import { View } from "./render.ts";
+import { type Look, View } from "./render.ts";
 
 const boot = document.getElementById("boot")!;
 const panel = document.getElementById("panel")!;
@@ -43,7 +43,12 @@ const arena = new Arena(world, [you, opp]);
 const reset = () => { you.spawn(-0.7, 0, 0); opp.spawn(0.7, 0, Math.PI); };
 reset();
 
-const view = new View(document.body, world, [0xf0a63c, 0x6c8cff]);
+const view = new View(document.body, world, [0xf0a63c, 0x6c8cff], [
+  { skin: 0xd8a07c, shorts: 0xf0a63c, gloves: 0xc1272d, hair: 0x2a1c12 },
+  { skin: 0x8a5a3c, shorts: 0x3d5afe, gloves: 0x1f4fd1, hair: 0x101010 },
+]);
+const startLook = (new URLSearchParams(location.search).get("look") as Look) ?? "human";
+view.setLook(startLook);
 boot.remove();
 
 // ---------- controls ----------
@@ -101,6 +106,11 @@ const input = slider.querySelector("input")!, out = slider.querySelector("span")
 input.oninput = () => { strength = Number(input.value); out.textContent = `${strength.toFixed(1)}x`; };
 panel.append(slider);
 
+const looks: Look[] = ["human", "robot", "both"];
+const lookButtons = looks.map((l) => button(l[0].toUpperCase() + l.slice(1), () => setLook(l), l === startLook ? "on" : ""));
+function setLook(l: Look) { view.setLook(l); lookButtons.forEach((b, i) => b.classList.toggle("on", looks[i] === l)); }
+group("Look", ...lookButtons);
+
 const slow = button("Slow-mo", () => { timeScale = timeScale === 1 ? 0.25 : 1; slow.classList.toggle("on", timeScale !== 1); });
 const pause = button("Pause", () => { paused = !paused; pause.classList.toggle("on", paused); });
 group("Time", slow, pause, button("Reset", reset));
@@ -118,6 +128,7 @@ addEventListener("keydown", (e) => {
   else if (e.key === "k") target.knockOut();
   else if (e.key === "r") reset();
   else if (e.key === " ") pause.click();
+  else if (e.key === "h") { panel.hidden = !panel.hidden; status.hidden = panel.hidden; }
 });
 
 // ---------- loop ----------

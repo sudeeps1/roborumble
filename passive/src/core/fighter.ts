@@ -5,7 +5,7 @@ import { type Attack, pushDirection } from "./attacks.ts";
 import { DEFAULT_ANGLES } from "./g1.ts";
 import { clamp, qmul, qrot, tiltOf, yawOf, yawQuat } from "./math.ts";
 import { Mode, type PlanBackend, applyPlan, contextFromReference, planFrames } from "./planner.ts";
-import { type Frame, REF_HZ, Reference, copyFrame, poseFrame, resample } from "./reference.ts";
+import { type Frame, REF_HZ, Reference, copyFrame, poseFrame, resample, waistToHips } from "./reference.ts";
 import { RING_RADIUS } from "./scene.ts";
 import { SonicController, type SonicPolicy } from "./sonic.ts";
 import type { RobotHandle, World } from "./world.ts";
@@ -17,6 +17,18 @@ const BRACE = DEFAULT_ANGLES.slice();
 BRACE[0] = BRACE[6] = -0.6; BRACE[3] = BRACE[9] = 1.1; BRACE[4] = BRACE[10] = -0.5;
 BRACE[15] = BRACE[22] = -1.1; BRACE[18] = BRACE[25] = 0.5;
 BRACE[16] = 0.35; BRACE[23] = -0.35;
+
+// Knees buckling, arms half up: a knocked-out body folding, not a plank tipping over.
+const CRUMPLE = DEFAULT_ANGLES.slice();
+CRUMPLE[0] = CRUMPLE[6] = -0.9; CRUMPLE[3] = CRUMPLE[9] = 1.6; CRUMPLE[4] = CRUMPLE[10] = -0.6;
+CRUMPLE[14] = 0.3; // waist folds forward
+CRUMPLE[15] = CRUMPLE[22] = -0.6; CRUMPLE[18] = CRUMPLE[25] = 0.9;
+
+// SONIC balances well enough that only a huge shove beats it, and a shove that big launches the
+// body across the ring. A hit at or over this impulse is a knockdown instead: a capped shove,
+// and the fighter goes slack at once.
+const KNOCKDOWN_IMPULSE = 55;  // N s
+const KNOCKDOWN_PUSH = 30;     // N s actually delivered
 
 const FALL_TILT = 0.95;      // rad (~55 deg) past which SONIC can't save it
 const FALL_HEIGHT = 0.45;    // m, pelvis
@@ -42,7 +54,10 @@ interface Pulse { body: number; local: number[]; force: number[]; left: number }
 export class Fighter {
   readonly name: string;
   readonly ctl: SonicController;
+  /** What SONIC follows: the planner's motion with its waist lean moved into the hips. */
   readonly ref: Reference;
+  /** The planner's own motion, untouched; new plans continue from this. */
+  readonly raw: Reference;
   stance: Stance = "idle";
   opponent: Fighter | null = null;
   planner: PlanBackend | null = null;
@@ -79,6 +94,7 @@ export class Fighter {
     this.seed = seed;
     this.ctl = new SonicController(world, robot, policy);
     this.ref = new Reference(world.robotQpos(robot));
+    this.raw = new Reference(world.robotQpos(robot));
     for (const b of robot.bodyIds) this.mass += world.model.body_mass[b];
   }
 
@@ -87,6 +103,7 @@ export class Fighter {
   spawn(x: number, y: number, yaw: number) {
     const pose = this.world.placeStanding(this.robot, x, y, yaw, DEFAULT_ANGLES);
     this.ref.replace([pose]);
+    this.raw.replace([pose]);
     this.ctl.active = true; this.ctl.hold = null; this.ctl.stiffness = 1;
     this.ctl.reset();
     this.ctl.worldHeading();
@@ -104,9 +121,13 @@ export class Fighter {
     const d = Math.hypot(fx, fy) || 1; fx /= d; fy /= d;
     const dir = pushDirection(a.dir, fx, fy);
     const n = Math.hypot(dir[0], dir[1], dir[2]) || 1;
-    const f = a.force * scale;
+    let f = a.force * scale;
+    const standing = this.stance === "idle" || this.stance === "stagger" || this.stance === "move";
+    const knockdown = standing && f * a.duration >= KNOCKDOWN_IMPULSE;
+    if (knockdown) f = KNOCKDOWN_PUSH / a.duration;
     this.pulses.push({ body, local: a.offset, force: [(dir[0] / n) * f, (dir[1] / n) * f, (dir[2] / n) * f], left: a.duration });
-    if (this.stance === "idle") this.setStance("stagger");
+    if (knockdown) this.startFall(true);
+    else if (this.stance === "idle") this.setStance("stagger");
     this.lastEvent = `${a.name} (${Math.round(f)} N)`;
     return { point: this.pointOn(body, a.offset), force: this.pulses[this.pulses.length - 1].force };
   }
@@ -130,7 +151,8 @@ export class Fighter {
       const q = qmul(rot, [f[3], f[4], f[5], f[6]]);
       f[3] = q[0]; f[4] = q[1]; f[5] = q[2]; f[6] = q[3];
     }
-    this.ref.splice(frames, 1, 8);
+    this.raw.splice(frames.map(copyFrame), 1, 8);
+    this.ref.splice(waistToHips(frames), 1, 8);
     this.setStance("move");
     this.intent = "playing a move";
     return true;
@@ -172,12 +194,13 @@ export class Fighter {
     // in range (or out of patience): throw it
     this.punch = null;
     this.intent = `throwing ${this.pendingStrike?.attack.name.toLowerCase()}`;
-    const { context, genFrame } = contextFromReference(this.ref);
+    const { context, genFrame } = contextFromReference(this.raw);
     this.planInFlight = true;
     this.planner!.plan({ context, mode: pu.mode, movement: [fx, fy, 0], facing: [fx, fy, 0], speed: 0.2 })
       .then((flat) => {
         if (this.stance !== "move") return;
-        applyPlan(this.ref, flat, genFrame);
+        applyPlan(this.raw, flat, genFrame);
+        applyPlan(this.ref, flat, genFrame, waistToHips);
         this.strike = this.pendingStrike;
         this.pendingStrike = null;
       })
@@ -271,6 +294,7 @@ export class Fighter {
 
     await this.ctl.tick(this.ref);
     this.ref.advance();
+    this.raw.advance();
   }
 
   /** Per 5 ms physics step: hit pulses, the fallback lift, then PD. */
@@ -313,14 +337,15 @@ export class Fighter {
 
   private requestPlan(mode: number, movement: number[], facing: number[], speed: number, holdFor: number) {
     if (!this.planner) return;
-    const { context, genFrame } = contextFromReference(this.ref);
+    const { context, genFrame } = contextFromReference(this.raw);
     this.planInFlight = true;
     const stance = this.stance;
     this.planner.plan({ context, mode, movement, facing, speed, seed: (this.seed = (this.seed * 48271) % 2147483647) })
       .then((flat) => {
         if (this.stance !== stance && !(stance === "stagger" && this.stance === "idle")) return;
         if (stance === "move" && !this.punch) return; // the punch itself took over
-        applyPlan(this.ref, flat, genFrame);
+        applyPlan(this.raw, flat, genFrame);
+        applyPlan(this.ref, flat, genFrame, waistToHips);
       })
       .catch((e) => { this.lastEvent = `planner: ${e.message ?? e}`; })
       .finally(() => { this.planInFlight = false; this.nextPlanAt = this.t + holdFor; });
@@ -331,16 +356,19 @@ export class Fighter {
     if (this.ref.remaining > 10) return;
     const f = poseFrame([me[0], me[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES);
     this.ref.splice([f], 1, 8);
+    this.raw.splice([copyFrame(f)], 1, 8);
     this.intent = "guard (no planner)";
   }
 
   // ---------- falling and getting up ----------
 
-  private startFall() {
+  private startFall(knockedOut = false) {
     this.setStance("falling");
-    this.ctl.hold = BRACE;      // reach out instead of flailing
-    this.ctl.stiffness = 0.3;
-    this.intent = "going down";
+    this.punch = null; this.strike = null; this.pendingStrike = null;
+    // a stumble reaches out to break the fall; a knockdown folds at the knees
+    this.ctl.hold = knockedOut ? CRUMPLE : BRACE;
+    this.ctl.stiffness = knockedOut ? 0.16 : 0.3;
+    this.intent = knockedOut ? "knocked down" : "going down";
   }
 
   private startRise() {
@@ -352,6 +380,7 @@ export class Fighter {
     // The reference restarts from where the robot actually is.
     const now = this.world.robotQpos(this.robot);
     this.ref.replace([copyFrame(now)]);
+    this.raw.replace([copyFrame(now)]);
     this.ctl.reset();
     this.ctl.worldHeading();
     if (!this.planner || this.riseTries > 2) { this.startAssist(this.faceYaw(now)); return; }
@@ -374,7 +403,7 @@ export class Fighter {
       if (this.stance !== "rising") return;
       // plan frame 0 sits 3 planner frames (0.1 s) behind "now"
       const frames = planFrames(flat).slice(5);
-      if (frames.length) this.ref.replace(frames);
+      if (frames.length) { this.ref.replace(frames); this.raw.replace(frames); }
     } catch (e) {
       this.lastEvent = `planner: ${(e as Error).message}`;
       this.startAssist(yaw);
@@ -441,7 +470,9 @@ export class Fighter {
     this.intent = "lifted up (assist)";
     this.assistCap = 1;
     const me = this.world.rootPos(this.robot);
-    this.ref.replace([poseFrame([me[0], me[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES)]);
+    const f = poseFrame([me[0], me[1], 0.76], [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], DEFAULT_ANGLES);
+    this.ref.replace([f]);
+    this.raw.replace([copyFrame(f)]);
     this.assist = 0.01;
   }
 

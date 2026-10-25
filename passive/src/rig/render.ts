@@ -4,6 +4,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RING_RADIUS } from "../core/scene.ts";
 import type { RobotHandle, World } from "../core/world.ts";
+import { Human, type HumanLook } from "./human.ts";
+
+export type Look = "human" | "robot" | "both";
 
 interface Flash { mesh: THREE.Mesh; arrow: THREE.ArrowHelper; age: number }
 
@@ -16,8 +19,10 @@ export class View {
   private m4 = new THREE.Matrix4();
   private flashes: Flash[] = [];
   private world: World;
+  private humans: Human[] = [];
+  private robotMats: THREE.MeshStandardMaterial[] = [];
 
-  constructor(container: HTMLElement, world: World, tints: number[]) {
+  constructor(container: HTMLElement, world: World, tints: number[], looks: HumanLook[]) {
     this.world = world;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -56,6 +61,8 @@ export class View {
     this.scene.add(grid);
 
     this.buildRobots(tints);
+    this.humans = world.robots.map((r, i) => new Human(world, r, looks[i]));
+    for (const h of this.humans) this.scene.add(h.group);
     addEventListener("resize", () => {
       this.camera.aspect = innerWidth / innerHeight;
       this.camera.updateProjectionMatrix();
@@ -72,6 +79,7 @@ export class View {
       new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0.35 }),
       new THREE.MeshStandardMaterial({ color: 0x22252b, roughness: 0.6, metalness: 0.2 }),
     ]);
+    this.robotMats = mats.flat();
     for (let g = 0; g < m.ngeom; g++) {
       if (m.geom_group[g] !== 1 || m.geom_type[g] !== 7) continue; // visual meshes only
       const robot = owner.get(m.geom_bodyid[g]);
@@ -96,8 +104,20 @@ export class View {
     }
   }
 
+  /** Human boxers, the G1 robots, or the humans over a see-through robot. */
+  setLook(look: Look) {
+    for (const { obj } of this.geoms) obj.visible = look !== "human";
+    for (const h of this.humans) h.group.visible = look !== "robot";
+    for (const m of this.robotMats) {
+      m.transparent = look === "both";
+      m.opacity = look === "both" ? 0.22 : 1;
+      m.depthWrite = look !== "both";
+    }
+  }
+
   /** Copies geom poses from MuJoCo into the scene. */
   sync() {
+    for (const h of this.humans) h.sync();
     const d = this.world.data, p = d.geom_xpos, R = d.geom_xmat;
     for (const { id, obj } of this.geoms) {
       const o = id * 9, t = id * 3;

@@ -125,6 +125,28 @@ export class Reference {
   }
 }
 
+/** Extra forward pelvis tilt (rad); SONIC tracks the pelvis a few degrees short of the reference. */
+export const FORWARD_LEAN = 0.06;
+
+/**
+ * SONIC holds the G1's waist pitch nearly still, so a reference that leans forward at the waist
+ * comes out leaned back. This moves `k` of the waist pitch into the pelvis: the pelvis tilts
+ * forward by that angle and both hips fold by it, so the torso and legs keep their world pose.
+ */
+export function waistToHips(frames: Frame[], k = 1, extra = FORWARD_LEAN): Frame[] {
+  const WAIST_PITCH = 7 + 14, HIP_L = 7 + 0, HIP_R = 7 + 6;
+  for (const f of frames) {
+    const th = k * f[WAIST_PITCH] + extra;
+    const s = Math.sin(th / 2), c = Math.cos(th / 2);
+    // root quat * rotation about the pelvis' own y axis (positive = top forward)
+    const w = f[3], x = f[4], y = f[5], z = f[6];
+    f[3] = w * c - y * s; f[4] = x * c - z * s; f[5] = y * c + w * s; f[6] = z * c + x * s;
+    f[WAIST_PITCH] -= th - extra; // the extra lean is a pelvis tilt the waist doesn't take back
+    f[HIP_L] -= th; f[HIP_R] -= th;
+  }
+  return frames;
+}
+
 /** A frame that holds a pose: root at pos/quat, joints given (MuJoCo order). */
 export function poseFrame(pos: ArrayLike<number>, quat: ArrayLike<number>, joints: ArrayLike<number>): Frame {
   const f = new Float64Array(36);

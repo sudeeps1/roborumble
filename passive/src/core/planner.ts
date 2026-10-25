@@ -103,8 +103,9 @@ export function planFrames(flat: Float32Array): Frame[] {
 }
 
 /** Splices a plan made from contextFromReference() into the reference, as SONIC's deploy stack does. */
-export function applyPlan(ref: Reference, flat: Float32Array, genFrame: number) {
+export function applyPlan(ref: Reference, flat: Float32Array, genFrame: number, transform?: (f: Frame[]) => Frame[]) {
   let frames = planFrames(flat);
+  if (transform) frames = transform(frames);
   let delay = genFrame - ref.cursor;
   if (delay < 0) { frames = frames.slice(-delay); delay = 0; }
   ref.splice(frames, delay, 8);
