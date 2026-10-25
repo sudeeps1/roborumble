@@ -152,8 +152,8 @@ export async function loadMagicProps(): Promise<THREE.Group> {
   });
   yup.add(fairy);
   // the windmill and its trees, far back behind the fighters, in the fog
-  mill.scene.scale.setScalar(0.8);
-  mill.scene.position.set(9, -0.3, -18);
+  mill.scene.scale.setScalar(0.7);
+  mill.scene.position.set(18, -0.3, -32); // a far silhouette, half in the fog
   mill.scene.rotation.y = -0.6;
   yup.add(mill.scene);
   return root;
