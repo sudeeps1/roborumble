@@ -68,6 +68,9 @@ def transcribe(data: bytes, hint_words: list[str] | None = None) -> str:
     raise SttError("STT is off on this server; send `transcript` with the request")
 
 
+_muse_client = None
+
+
 def _muse(wav: bytes) -> str:
     import httpx
 
@@ -77,7 +80,10 @@ def _muse(wav: bytes) -> str:
     # Verified against the live API: a JSON "request" part (model + audioEncoding) and an "audio" part.
     # The response is {"sessionId", "transcript": "uppercut.", "audioDurationMs", "turns"}.
     request = json.dumps({"model": MUSE_MODEL, "audioEncoding": "WAV"})
-    r = httpx.post(url, headers={"Authorization": f"Bearer {config.MUSE_API_KEY}"},
+    global _muse_client
+    if _muse_client is None:  # one connection kept open: a new TLS handshake per shout cost ~0.4 s
+        _muse_client = httpx.Client()
+    r = _muse_client.post(url, headers={"Authorization": f"Bearer {config.MUSE_API_KEY}"},
                    files={"request": (None, request, "application/json"), MUSE_FILE_FIELD: ("shout.wav", wav, "audio/wav")},
                    timeout=10.0)
     if r.status_code >= 400:
