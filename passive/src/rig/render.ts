@@ -2,6 +2,9 @@
 // Draws the robots' visual meshes (geom group 1) straight from the compiled model.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { LIMBS, type Limb, type Volume } from "../core/body.ts";
+import type { Combat } from "../core/combat.ts";
+import type { Fighter } from "../core/fighter.ts";
 import { RING_RADIUS } from "../core/scene.ts";
 import type { RobotHandle, World } from "../core/world.ts";
 import { Human, type HumanLook } from "./human.ts";
@@ -10,6 +13,9 @@ import { RiggedHuman } from "./humanRig.ts";
 export type Look = "human" | "robot" | "both";
 
 interface Flash { mesh: THREE.Mesh; arrow: THREE.ArrowHelper; age: number }
+interface Box { fighter: Fighter; vol?: Volume; limb?: Limb; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }
+
+const ZONE_COLOR = { head: 0xff4d4d, torso: 0xffa94d, legs: 0xffe14d } as const;
 
 export class View {
   readonly renderer: THREE.WebGLRenderer;
@@ -22,6 +28,10 @@ export class View {
   private world: World;
   private humans: { group: THREE.Object3D; sync(): void }[] = [];
   private robotMats: THREE.MeshStandardMaterial[] = [];
+  private boxes: Box[] = [];
+  private hitboxes: { combat: Combat; time: () => number } | null = null;
+  private va = [0, 0, 0]; private vb = [0, 0, 0];
+  private up = new THREE.Vector3(0, 1, 0); private dv = new THREE.Vector3();
 
   /** humanModel: the rigged glTF from scripts/rig_human.py; without it the humans are mannequins. */
   constructor(container: HTMLElement, world: World, tints: number[], looks: HumanLook[], humanModel: THREE.Object3D | null = null) {
@@ -121,9 +131,56 @@ export class View {
     }
   }
 
+  /**
+   * Shows what the combat code sees: hurt volumes (head red, torso orange, legs yellow), forearm
+   * guards (blue), and striking limbs (white, magenta while a strike window is live).
+   */
+  showHitboxes(fighters: readonly Fighter[] | null, combat?: Combat, time?: () => number) {
+    for (const b of this.boxes) { this.scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mat.dispose(); }
+    this.boxes = [];
+    this.hitboxes = fighters && combat && time ? { combat, time } : null;
+    if (!fighters || !this.hitboxes) return;
+    const add = (fighter: Fighter, geo: THREE.BufferGeometry, color: number, opacity: number, part: { vol?: Volume; limb?: Limb }) => {
+      const mat = new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity, depthTest: false });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 10;
+      this.scene.add(mesh);
+      this.boxes.push({ fighter, mesh, mat, ...part });
+    };
+    for (const f of fighters) {
+      for (const v of f.body.hurt) add(f, new THREE.CapsuleGeometry(v.r, Math.max(1e-4, Math.hypot(v.b[0] - v.a[0], v.b[1] - v.a[1], v.b[2] - v.a[2])), 4, 12), ZONE_COLOR[v.zone], 0.4, { vol: v });
+      for (const v of f.body.guard) add(f, new THREE.CapsuleGeometry(v.r, Math.max(1e-4, Math.hypot(v.b[0] - v.a[0], v.b[1] - v.a[1], v.b[2] - v.a[2])), 3, 8), 0x4dd2ff, 0.35, { vol: v });
+      for (const l of LIMBS) add(f, new THREE.SphereGeometry(f.body.strikers[l].r, 10, 8), 0xffffff, 0.25, { limb: l });
+    }
+  }
+
+  private syncHitboxes() {
+    if (!this.hitboxes) return;
+    const t = this.hitboxes.time();
+    const live = new Map<Fighter, Limb[]>();
+    for (const b of this.boxes) {
+      const f = b.fighter;
+      if (b.vol) {
+        const [a, c] = f.body.segment(b.vol, this.va, this.vb);
+        b.mesh.position.set((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2);
+        this.dv.set(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
+        if (this.dv.lengthSq() > 1e-10) b.mesh.quaternion.setFromUnitVectors(this.up, this.dv.normalize());
+      } else if (b.limb) {
+        if (!live.has(f)) live.set(f, this.hitboxes.combat.liveLimbs(f, t));
+        const s = f.body.strikers[b.limb];
+        const p = this.world.pointOn(s.body, s.local, this.va);
+        b.mesh.position.set(p[0], p[1], p[2]);
+        const on = live.get(f)!.includes(b.limb);
+        b.mat.color.setHex(on ? 0xff3df0 : 0xffffff);
+        b.mat.opacity = on ? 0.9 : 0.25;
+      }
+    }
+  }
+
   /** Copies geom poses from MuJoCo into the scene. */
   sync() {
     for (const h of this.humans) h.sync();
+    this.syncHitboxes();
     const d = this.world.data, p = d.geom_xpos, R = d.geom_xmat;
     for (const { id, obj } of this.geoms) {
       const o = id * 9, t = id * 3;

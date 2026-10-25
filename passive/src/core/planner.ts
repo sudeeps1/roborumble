@@ -72,7 +72,8 @@ export class HttpPlanner implements PlanBackend {
   constructor(base = "/planner") { this.base = base; }
 
   async plan(req: PlanRequest): Promise<Float32Array> {
-    const res = await fetch(`${this.base}/plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+    // a stuck planner must not stall a fighter: give up after 2.5 s and let the caller fall back
+    const res = await fetch(`${this.base}/plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(2500) });
     if (!res.ok) throw new Error(`planner ${res.status}`);
     return Float32Array.from((await res.json()).frames as number[]);
   }
@@ -82,14 +83,17 @@ export class HttpPlanner implements PlanBackend {
   }
 }
 
-/** The planner's context: 4 frames at 30 Hz starting LOOK_AHEAD frames after the cursor. */
+/**
+ * The planner's context: 4 frames at 30 Hz starting LOOK_AHEAD frames after "now".
+ * genFrame is the absolute reference frame the plan's first frame belongs at.
+ */
 export function contextFromReference(ref: Reference): { context: number[]; genFrame: number } {
-  const genFrame = ref.cursor + LOOK_AHEAD;
+  const genFrame = ref.now + LOOK_AHEAD;
   const context: number[] = [];
   for (let n = 0; n < 4; n++) {
     const s = genFrame + (n * REF_HZ) / PLAN_HZ;
     const i0 = Math.floor(s), u = s - i0;
-    const a = ref.frame(i0), b = ref.frame(i0 + 1);
+    const a = ref.at(i0), b = ref.at(i0 + 1);
     for (let i = 0; i < 36; i++) context.push(a[i] + (b[i] - a[i]) * u);
   }
   return { context, genFrame };
@@ -106,7 +110,5 @@ export function planFrames(flat: Float32Array): Frame[] {
 export function applyPlan(ref: Reference, flat: Float32Array, genFrame: number, transform?: (f: Frame[]) => Frame[]) {
   let frames = planFrames(flat);
   if (transform) frames = transform(frames);
-  let delay = genFrame - ref.cursor;
-  if (delay < 0) { frames = frames.slice(-delay); delay = 0; }
-  ref.splice(frames, delay, 8);
+  ref.splice(frames, genFrame, 8);
 }

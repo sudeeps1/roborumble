@@ -72,6 +72,13 @@ export class SonicController {
   hold: ArrayLike<number> | null = null;
   /** Yaw correction applied to the reference (identity: reference is in world frame). */
   headingFix: number[] = [1, 0, 0, 0];
+  /**
+   * Overlay on top of the reference, for reactions and defenses that SONIC should act out without
+   * a new motion: a world-frame rotation of the reference body (a flinch, a slip) and joint offsets
+   * (guard up, knees bent). Set every tick by the Fighter; identity/zero means no overlay.
+   */
+  overlayQuat: number[] = [1, 0, 0, 0];
+  readonly overlayJoints = new Float64Array(NJ);
 
   private hAng = new Float32Array(HIST * 3);
   private hQ = new Float32Array(HIST * NJ);
@@ -99,6 +106,8 @@ export class SonicController {
   /** Clears history to the current state. Call after teleporting the robot or switching control on. */
   reset() {
     this.lastAction.fill(0);
+    this.overlayQuat = [1, 0, 0, 0];
+    this.overlayJoints.fill(0);
     for (let k = 0; k < HIST; k++) this.pushState();
     const q = this.world.data.qpos;
     for (let j = 0; j < NJ; j++) this.target[j] = q[this.robot.qpos[j]];
@@ -141,15 +150,17 @@ export class SonicController {
     e.fill(0); // mode id 0 ("g1") and every observation g1 mode doesn't use
     const base = this.world.rootQuat(this.robot, this.tq);
     const baseInv = qconj(base, this.tmp2);
+    const lo = this.robot.lo, hi = this.robot.hi, oj = this.overlayJoints;
     for (let k = 0; k < FUTURE; k++) {
-      const fi = ref.cursor + k * FUTURE_STEP * (REF_HZ / CONTROL_HZ);
-      const f = ref.frame(fi);
+      const fi = ref.now + k * FUTURE_STEP * (REF_HZ / CONTROL_HZ);
+      const f = ref.at(fi);
       for (let il = 0; il < NJ; il++) {
         const mj = MJ_OF_IL[il];
-        e[4 + k * NJ + il] = f[7 + mj];
+        const q = f[7 + mj] + oj[mj];
+        e[4 + k * NJ + il] = q < lo[mj] ? lo[mj] : q > hi[mj] ? hi[mj] : q;
         e[294 + k * NJ + il] = ref.jointVel(fi, mj);
       }
-      const refRoot = qmul(this.headingFix, [f[3], f[4], f[5], f[6]], this.tmp);
+      const refRoot = qmul(this.overlayQuat, qmul(this.headingFix, [f[3], f[4], f[5], f[6]], this.tmp), [0, 0, 0, 0]);
       rot6d(qmul(baseInv, refRoot, [0, 0, 0, 0]), e, 601 + k * 6);
     }
   }
@@ -172,6 +183,8 @@ export class SonicController {
     const token = await this.policy.encode(this.enc);
     this.buildDecoder(token);
     const action = await this.policy.decode(this.dec);
+    // a broken network output would fling the robot; keep the last good targets instead
+    for (let il = 0; il < NJ; il++) if (!Number.isFinite(action[il])) return;
     for (let il = 0; il < NJ; il++) this.lastAction[il] = action[il];
     for (let mj = 0; mj < NJ; mj++) {
       this.target[mj] = DEFAULT_ANGLES[mj] + action[IL_OF_MJ[mj]] * ACTION_SCALE[mj];

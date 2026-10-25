@@ -70,6 +70,11 @@ export function slerp(a: ArrayLike<number>, b: ArrayLike<number>, t: number, out
   return qnormalize(out);
 }
 
+/** Angle of the twist about world Z in q (swing-twist split): the yaw that best explains q. */
+export function twistZ(q: ArrayLike<number>): number {
+  return 2 * Math.atan2(q[3], q[0]);
+}
+
 /** Angle (rad) between the body's up axis and world up. 0 = upright. */
 export function tiltOf(q: ArrayLike<number>): number {
   const x = q[1], y = q[2];
@@ -79,3 +84,36 @@ export function tiltOf(q: ArrayLike<number>): number {
 
 export const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 export const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+
+/** Unit quaternion for a rotation of `angle` rad about axis (ax, ay, az) (any length > 0). */
+export function axisAngleQuat(ax: number, ay: number, az: number, angle: number, out: number[] = [1, 0, 0, 0]): number[] {
+  const n = Math.hypot(ax, ay, az);
+  if (n < 1e-9 || angle === 0) { out[0] = 1; out[1] = out[2] = out[3] = 0; return out; }
+  const s = Math.sin(angle / 2) / n;
+  out[0] = Math.cos(angle / 2); out[1] = ax * s; out[2] = ay * s; out[3] = az * s;
+  return out;
+}
+
+export const dist3 = (a: ArrayLike<number>, b: ArrayLike<number>) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+export const dist2 = (a: ArrayLike<number>, b: ArrayLike<number>) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+export const finite3 = (v: ArrayLike<number>) => Number.isFinite(v[0]) && Number.isFinite(v[1]) && Number.isFinite(v[2]);
+
+/** Distance from point p to segment a-b, and the closest point on the segment (into `out`). */
+export function pointSegment(p: ArrayLike<number>, a: ArrayLike<number>, b: ArrayLike<number>, out: number[] = [0, 0, 0]): number {
+  const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+  const l2 = abx * abx + aby * aby + abz * abz;
+  let t = l2 > 1e-12 ? ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby + (p[2] - a[2]) * abz) / l2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  out[0] = a[0] + abx * t; out[1] = a[1] + aby * t; out[2] = a[2] + abz * t;
+  return Math.hypot(p[0] - out[0], p[1] - out[1], p[2] - out[2]);
+}
+
+/** Small deterministic RNG (Park-Miller), so fights replay the same from a seed. */
+export class Rng {
+  private s: number;
+  constructor(seed: number) { this.s = Math.max(1, Math.floor(Math.abs(seed)) % 2147483646 || 1); }
+  next(): number { this.s = (this.s * 16807) % 2147483647; return (this.s - 1) / 2147483646; }
+  range(a: number, b: number) { return a + (b - a) * this.next(); }
+  pick<T>(xs: readonly T[]): T { return xs[Math.min(xs.length - 1, Math.floor(this.next() * xs.length))]; }
+  int(): number { this.next(); return this.s; }
+}

@@ -1,11 +1,13 @@
 // The motion a robot is trying to follow: frames of 36-value qpos (root pos, root quat w x y z,
-// 29 joints in MuJoCo order) at 50 Hz, the SONIC control rate. New motion is spliced in with
-// a short crossfade, the way SONIC's deploy stack blends planner outputs.
+// 29 joints in MuJoCo order) at 50 Hz, the SONIC control rate.
+// Frames are addressed by an absolute frame clock (`now` advances one per control tick, forever),
+// so motion that arrives late (an async plan) still lines up, even if the buffer was trimmed or
+// replaced in between. New motion is spliced in with a short crossfade, as SONIC's deploy stack does.
 import { NJ } from "./g1.ts";
 import { slerp } from "./math.ts";
 
 export const REF_HZ = 50;
-const KEEP_BEHIND = 25; // frames kept before the cursor
+const KEEP_BEHIND = 25; // frames kept before "now"
 
 export type Frame = Float64Array; // length 36
 
@@ -47,10 +49,31 @@ export function resample(frames: Frame[], fromHz: number, toHz: number = REF_HZ)
   return out;
 }
 
+/**
+ * Makes incoming motion safe to follow: every value finite, root quaternions unit length,
+ * joints inside the robot's limits (Kimodo overshoots them by up to ~8 degrees).
+ * Returns false (and leaves the frames alone) if anything is not finite: drop that motion.
+ */
+export function sanitizeFrames(frames: Frame[], lo: ArrayLike<number>, hi: ArrayLike<number>): boolean {
+  if (!frames.length) return false;
+  for (const f of frames) {
+    if (f.length !== 36) return false;
+    for (let i = 0; i < 36; i++) if (!Number.isFinite(f[i])) return false;
+  }
+  for (const f of frames) {
+    const n = Math.hypot(f[3], f[4], f[5], f[6]);
+    if (n < 1e-6) { f[3] = 1; f[4] = f[5] = f[6] = 0; } else for (let i = 3; i < 7; i++) f[i] /= n;
+    for (let j = 0; j < NJ; j++) f[7 + j] = Math.min(hi[j], Math.max(lo[j], f[7 + j]));
+  }
+  return true;
+}
+
 export class Reference {
   private frames: Frame[];
-  /** Index of the frame the robot should be at right now. */
-  cursor = 0;
+  /** Absolute frame index of frames[0]. */
+  private base = 0;
+  /** Absolute frame index of "now". Advances once per control tick and never goes back. */
+  now = 0;
 
   constructor(first: ArrayLike<number>) {
     this.frames = [copyFrame(first)];
@@ -58,70 +81,75 @@ export class Reference {
 
   get length() { return this.frames.length; }
   /** Frames left to play after the current one (0 = holding the last pose). */
-  get remaining() { return this.frames.length - 1 - this.cursor; }
+  get remaining() { return Math.max(0, this.frames.length - 1 - (this.now - this.base)); }
+  /** Absolute index of the last buffered frame. */
+  get end() { return this.base + this.frames.length - 1; }
 
-  frame(i: number): Frame {
-    return this.frames[Math.max(0, Math.min(i, this.frames.length - 1))];
+  /** Frame at absolute index `a` (before the buffer: its first frame; after it: its last). */
+  at(a: number): Frame {
+    const i = a - this.base;
+    return this.frames[i <= 0 ? 0 : i >= this.frames.length ? this.frames.length - 1 : Math.floor(i)];
   }
 
-  current(): Frame { return this.frame(this.cursor); }
+  current(): Frame { return this.at(this.now); }
 
-  /** Joint velocity (rad/s) of MuJoCo joint j at frame i; zero while holding the final pose. */
-  jointVel(i: number, j: number): number {
-    if (i >= this.frames.length - 1) return 0;
-    const a = this.frame(i), b = this.frame(i + 1);
-    return (b[7 + j] - a[7 + j]) * REF_HZ;
+  /** Joint velocity (rad/s) of MuJoCo joint j at absolute frame a; zero while holding the last pose. */
+  jointVel(a: number, j: number): number {
+    if (a >= this.end) return 0;
+    const f0 = this.at(a), f1 = this.at(a + 1);
+    return (f1[7 + j] - f0[7 + j]) * REF_HZ;
   }
 
   advance() {
-    if (this.cursor < this.frames.length - 1) this.cursor++;
-    if (this.cursor > KEEP_BEHIND * 2) {
-      const drop = this.cursor - KEEP_BEHIND;
-      this.frames.splice(0, drop);
-      this.cursor -= drop;
+    this.now++;
+    const behind = this.now - this.base;
+    if (behind > KEEP_BEHIND * 2) {
+      const drop = Math.min(behind - KEEP_BEHIND, this.frames.length - 1);
+      if (drop > 0) { this.frames.splice(0, drop); this.base += drop; }
     }
   }
 
-  /** Replaces everything with these frames (50 Hz), starting at the first one. */
-  replace(frames: Frame[]) {
+  /**
+   * Moves every buffered frame by (dx, dy). The motion keeps its shape and its velocities; only
+   * where it happens changes. Used to re-anchor a reference that drifted from the body.
+   */
+  translate(dx: number, dy: number) {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    for (const f of this.frames) { f[0] += dx; f[1] += dy; }
+  }
+
+  /** Replaces everything with these frames (50 Hz); frames[0] plays at absolute frame `at`. */
+  replace(frames: Frame[], at: number = this.now) {
     if (!frames.length) return;
     fixQuatSigns(frames);
     this.frames = frames.map(copyFrame);
-    this.cursor = 0;
+    this.base = at;
   }
 
   /**
-   * Splices new 50 Hz frames in so that frames[0] lands `delay` frames after the cursor,
-   * crossfading from the old motion over `blend` frames.
+   * Splices 50 Hz frames in so frames[0] plays at absolute frame `at`, crossfading from the old
+   * motion over `blend` frames. Frames already in the past are dropped.
    */
-  splice(frames: Frame[], delay = 0, blend = 8) {
+  splice(frames: Frame[], at: number, blend = 8) {
+    let p = at - this.base;
+    if (p < 0) { frames = frames.slice(-p); p = 0; }
     if (!frames.length) return;
-    const start = this.cursor + delay;
-    fixQuatSigns(frames, this.frame(start));
-    const next: Frame[] = this.frames.slice(0, Math.min(start, this.frames.length));
-    while (next.length < start) next.push(copyFrame(this.frame(next.length)));
+    // never rewrite what is playing right now
+    const minP = this.now - this.base + 1;
+    if (p < minP) { frames = frames.slice(minP - p); p = minP; }
+    if (!frames.length) return;
+    fixQuatSigns(frames, this.at(this.base + p));
+    const next: Frame[] = this.frames.slice(0, Math.min(p, this.frames.length));
+    while (next.length < p) next.push(copyFrame(this.frames[this.frames.length - 1]));
     for (let k = 0; k < frames.length; k++) {
-      const oldIdx = start + k;
-      if (k < blend && oldIdx < this.frames.length) {
-        next.push(mixFrames(this.frames[oldIdx], frames[k], (k + 1) / (blend + 1)));
-      } else if (k < blend) {
-        next.push(mixFrames(this.frame(oldIdx), frames[k], (k + 1) / (blend + 1)));
+      if (k < blend) {
+        const old = this.frames[Math.min(p + k, this.frames.length - 1)];
+        next.push(mixFrames(old, frames[k], (k + 1) / (blend + 1)));
       } else {
         next.push(copyFrame(frames[k]));
       }
     }
     this.frames = next;
-  }
-
-  /** The last `n` frames sampled at `hz` ending at the cursor (planner context). */
-  history(n: number, hz: number): Frame[] {
-    const out: Frame[] = [];
-    for (let k = n - 1; k >= 0; k--) {
-      const s = this.cursor - (k * REF_HZ) / hz;
-      const i0 = Math.floor(s);
-      out.push(mixFrames(this.frame(i0), this.frame(i0 + 1), s - i0));
-    }
-    return out;
   }
 }
 

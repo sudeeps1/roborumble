@@ -3,11 +3,19 @@
 Branch `sudeep/physics`, written 2026-10-24 during HackTX. The team restarted the
 code from scratch. The concept is still Infinite Fighter (see `origin/v1:CLAUDE.md`).
 
-**Status, 23:00:** `passive/` works end to end in the browser, at 60 fps. Two G1s run
-on SONIC with boxer footwork. They have simulated attacks, real falls, staged get-ups
-and KO. See `passive/README.md`. Its `src/core/` is the physics core described below
-(MuJoCo + SONIC, no DOM). Build the fight sim and the referee on it rather than
-starting a second one.
+**Status, 10-25 morning:** `passive/` works end to end in the browser, at 60 fps (tick ~5 ms).
+Two G1s on SONIC:
+- box with footwork
+- throw punches that land only on contact
+- block, slip, duck, step back and jump
+- flinch and stagger, lose balance and get knocked down, get back up, and get KO'd
+
+The arena keeps HP, runs the referee, rolls back blown-up physics, and reports everything as
+events. A sparring AI can drive either fighter.
+
+`npm run fight-check` (scripted checks) and `npm run stress` (randomized abuse with invariants)
+pass. See `passive/README.md`. Its `src/core/` is the physics core described below (MuJoCo +
+SONIC, no DOM). Build the fight sim and the referee on it rather than starting a second one.
 
 ## The game, from the physics side
 Two Unitree G1 robots fight in real physics. Moves come from three places:
@@ -67,11 +75,23 @@ moves can knock over your own robot, and knockouts are real falls.
    - It has two G1s, one SONIC controller each, 5 ms physics steps and a 20 ms
      controller tick, with no DOM.
    - It also runs headless in Node (`scripts/fight-check.ts` simulates 22 s in 4.5 s).
-   - Your hooks into it:
-     - `Fighter.playMove(qposRows, 30)`: plays a Kimodo clip, re-based to face the opponent.
-     - `Fighter.hit(attack, from, scale)`: applies an attack as a force pulse.
-     - `Fighter.knockOut()`: limp, stays down.
-     - `Fighter.stance`: the robot's current state.
+   - Your hooks into it (full list in `passive/README.md`, "Using it from the fight code"):
+     - `new Arena(world, policy, {hp, autoKO})`, `arena.tick()` every 20 ms, `arena.on(event => ...)`.
+     - `Fighter.playMove(qposRows, 30, strikes, name)`: plays a Kimodo clip, re-based to face the
+       opponent.
+       - `strikes` say which limb can hurt when.
+       - `strikeFromHit(hit, fps, power)` builds one from the server's `hit: {joint, frame}`.
+       - `rowsFromJson()` converts the proposed motion JSON.
+     - `Fighter.throwPunch(name, power)`: steps in and throws a planner punch.
+     - `Fighter.defend("block" | "duck" | "dodge.left" | "dodge.right" | "dodge.back" | "jump",
+       seconds?, clip?)`: the phone buttons. A Kimodo clip can act the defense out.
+     - `arena.hitInstant(who, attack, scale)`: a force pulse with no fist.
+     - `Fighter.knockOut()`: folds, goes limp, stays down.
+     - `Fighter.stance`, `poise` (balance), `arena.hp`.
+     - `arena.combat.mode = "rules"`: the rules decide hits (moves that don't aim). The default,
+       `"contact"`, needs the limb to reach the body.
+     - Kimodo clips can replace the planner's guard, steps, dodges, blocks and get-ups one at a
+       time: `ClipSource` with `public/clips/index.json`.
 3. **Build Balance Referee v1** before the overnight library run. If it's late,
    the library saves motions unscored and you score everything in one batch in
    the morning.
@@ -90,12 +110,18 @@ moves can knock over your own robot, and knockouts are real falls.
    - **Where it runs:** Node. `@mujoco/mujoco` runs in Node, and
      `onnxruntime-node` runs SONIC.
    - **Calibrate** the score scales on 20 to 50 real clips.
-4. **Fight physics and rules.**
-   - Hits are short force pulses on the body part that got hit, sized by damage.
-   - Block and dodge windows come from the rules; the body catches up.
-   - Knockdown: pelvis below 0.4 m for 2 s. KO: the controller switches off.
-   - Damage formula, types and characters, energy, cooldowns, signature bonus.
-   - A hidden leash keeps the fighters in range and in the ring.
+4. **Fight physics and rules.** First version done in `passive/`. The numbers are in `passive/README.md`.
+   - Done:
+     - Hits are short force pulses on the body part that got hit (contact point, push along the
+       strike), sized by power, zone, speed and squareness.
+     - Dodge windows are rules (`Fighter.evades`), and the body acts them out. Blocks soften
+       hits that meet the forearms or come from the front.
+     - Balance (poise) drains with hits and knocks the fighter down at 0. KO: it folds, then the
+       controller switches off.
+     - HP with a first damage formula (zone, blocked, counter).
+     - The referee: soft ropes, a leash, pushing bodies apart, breaking clinches.
+   - Still yours to decide: types and characters, energy, cooldowns, signature bonus, and the
+     final damage numbers (`DAMAGE` in `arena.ts`).
 5. **Live wildcards** play right away with instant power and originality. The full
    stability test runs in the background.
 

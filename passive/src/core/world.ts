@@ -14,6 +14,8 @@ export interface RobotHandle {
   qpos: Int32Array;          // qpos index per joint, MuJoCo order
   qvel: Int32Array;          // qvel index per joint
   actuator: Int32Array;      // actuator id per joint
+  lo: Float64Array;          // joint limits (rad), MuJoCo order
+  hi: Float64Array;
   bodies: Map<string, number>; // unprefixed body name -> body id
   bodyIds: number[];         // all body ids of this robot
 }
@@ -49,10 +51,13 @@ export class World {
     const m = this.model;
     const free = this.id("mjOBJ_JOINT", `${prefix}floating_base_joint`);
     const qpos = new Int32Array(NJ), qvel = new Int32Array(NJ), actuator = new Int32Array(NJ);
+    const lo = new Float64Array(NJ), hi = new Float64Array(NJ);
     JOINTS.forEach((j, i) => {
       const jid = this.id("mjOBJ_JOINT", prefix + j);
       qpos[i] = m.jnt_qposadr[jid];
       qvel[i] = m.jnt_dofadr[jid];
+      lo[i] = m.jnt_range[jid * 2]; hi[i] = m.jnt_range[jid * 2 + 1];
+      if (!(hi[i] > lo[i])) { lo[i] = -Math.PI; hi[i] = Math.PI; }
       actuator[i] = this.id("mjOBJ_ACTUATOR", prefix + j.replace(/_joint$/, ""));
     });
     const bodies = new Map<string, number>();
@@ -61,11 +66,40 @@ export class World {
       const name: string = this.mj.mj_id2name(m, this.mj.mjtObj.mjOBJ_BODY.value, b) ?? "";
       if (name.startsWith(prefix)) { bodies.set(name.slice(prefix.length), b); bodyIds.push(b); }
     }
-    return { prefix, qposRoot: m.jnt_qposadr[free], qvelRoot: m.jnt_dofadr[free], qpos, qvel, actuator, bodies, bodyIds };
+    return { prefix, qposRoot: m.jnt_qposadr[free], qvelRoot: m.jnt_dofadr[free], qpos, qvel, actuator, lo, hi, bodies, bodyIds };
   }
 
   step() {
     this.mj.mj_step(this.model, this.data);
+  }
+
+  /** True if any position or velocity is NaN/inf (the sim blew up). */
+  unstable(): boolean {
+    const q = this.data.qpos, v = this.data.qvel;
+    for (let i = 0; i < q.length; i++) if (!Number.isFinite(q[i])) return true;
+    for (let i = 0; i < v.length; i++) if (!Number.isFinite(v[i]) || Math.abs(v[i]) > 1e3) return true;
+    return false;
+  }
+
+  /** Copies of qpos/qvel, to roll back to if the sim blows up. */
+  snapshot(): { qpos: Float64Array; qvel: Float64Array; time: number } {
+    return { qpos: Float64Array.from(this.data.qpos), qvel: Float64Array.from(this.data.qvel), time: this.data.time };
+  }
+
+  restore(s: { qpos: Float64Array; qvel: Float64Array; time: number }) {
+    this.data.qpos.set(s.qpos);
+    this.data.qvel.set(s.qvel);
+    this.data.qacc_warmstart?.fill?.(0);
+    this.data.ctrl.fill(0);
+    this.clearForces();
+    this.forward();
+  }
+
+  /** World linear velocity of a robot's pelvis (free-joint qvel is world-frame for translation). */
+  rootVel(r: RobotHandle, out: number[] = [0, 0, 0]): number[] {
+    const v = this.data.qvel;
+    out[0] = v[r.qvelRoot]; out[1] = v[r.qvelRoot + 1]; out[2] = v[r.qvelRoot + 2];
+    return out;
   }
 
   forward() {
@@ -142,6 +176,55 @@ export class World {
 
   clearForces() {
     this.data.xfrc_applied.fill(0);
+  }
+
+  /** World position of a point given in a body's frame. */
+  pointOn(body: number, local: ArrayLike<number>, out: number[] = [0, 0, 0]): number[] {
+    const x = this.data.xpos, R = this.data.xmat, o = body * 9, t = body * 3;
+    const lx = local[0], ly = local[1], lz = local[2];
+    out[0] = x[t] + R[o] * lx + R[o + 1] * ly + R[o + 2] * lz;
+    out[1] = x[t + 1] + R[o + 3] * lx + R[o + 4] * ly + R[o + 5] * lz;
+    out[2] = x[t + 2] + R[o + 6] * lx + R[o + 7] * ly + R[o + 8] * lz;
+    return out;
+  }
+
+  /** A world point expressed in a body's frame. */
+  toLocal(body: number, p: ArrayLike<number>, out: number[] = [0, 0, 0]): number[] {
+    const x = this.data.xpos, R = this.data.xmat, o = body * 9, t = body * 3;
+    const dx = p[0] - x[t], dy = p[1] - x[t + 1], dz = p[2] - x[t + 2];
+    out[0] = R[o] * dx + R[o + 3] * dy + R[o + 6] * dz;
+    out[1] = R[o + 1] * dx + R[o + 4] * dy + R[o + 7] * dz;
+    out[2] = R[o + 2] * dx + R[o + 5] * dy + R[o + 8] * dz;
+    return out;
+  }
+
+  /** Axis-aligned bounds of a mesh geom's vertices, in its body's frame: [min xyz, max xyz]. */
+  meshBounds(geom: number): [number[], number[]] | null {
+    const m = this.model;
+    const mid = m.geom_dataid[geom];
+    if (m.geom_type[geom] !== 7 || mid < 0) return null;
+    const va = m.mesh_vertadr[mid], vn = m.mesh_vertnum[mid], V = m.mesh_vert;
+    const gp = [m.geom_pos[geom * 3], m.geom_pos[geom * 3 + 1], m.geom_pos[geom * 3 + 2]];
+    const gq = [m.geom_quat[geom * 4], m.geom_quat[geom * 4 + 1], m.geom_quat[geom * 4 + 2], m.geom_quat[geom * 4 + 3]];
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    const w = gq[0], qx = gq[1], qy = gq[2], qz = gq[3];
+    for (let i = va; i < va + vn; i++) {
+      const vx = V[i * 3], vy = V[i * 3 + 1], vz = V[i * 3 + 2];
+      const tx = 2 * (qy * vz - qz * vy), ty = 2 * (qz * vx - qx * vz), tz = 2 * (qx * vy - qy * vx);
+      const p = [vx + w * tx + (qy * tz - qz * ty) + gp[0], vy + w * ty + (qz * tx - qx * tz) + gp[1], vz + w * tz + (qx * ty - qy * tx) + gp[2]];
+      for (let k = 0; k < 3; k++) { if (p[k] < lo[k]) lo[k] = p[k]; if (p[k] > hi[k]) hi[k] = p[k]; }
+    }
+    return [lo, hi];
+  }
+
+  /** Mesh geoms (visual group 1) of a body, by mesh name. */
+  meshGeom(body: number, meshName: string): number {
+    const m = this.model;
+    for (let g = 0; g < m.ngeom; g++) {
+      if (m.geom_bodyid[g] !== body || m.geom_type[g] !== 7) continue;
+      if (this.mj.mj_id2name(m, this.mj.mjtObj.mjOBJ_MESH.value, m.geom_dataid[g]) === meshName) return g;
+    }
+    return -1;
   }
 
   bodyPos(body: number, out: number[] = [0, 0, 0]): number[] {
