@@ -7,15 +7,14 @@ import * as THREE from "three";
 import { REFEREE } from "../core/arena.ts";
 import type { FxLook } from "./fx.ts";
 import type { Stage } from "./stage.ts";
-import { loadForest } from "../arena/forest.ts";
+import { loadForest, nightSky } from "../arena/forest.ts";
 
 export interface ArenaSet { look: FxLook; update(t: number, dt: number): void }
 
 /** The night forest (characters/public/arena.glb), softly lit: a moonlit key, a violet sky fill, haze. */
 export function buildForestArena(stage: Stage): ArenaSet {
   const s = stage.scene;
-  s.background = new THREE.Color(0x1a1230);
-  s.fog = new THREE.FogExp2(0x1a1230, 0.022);
+  nightSky(s, 150); // the viewer's violet sky, stars and fog (its far plane is 220 m)
   const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 64), new THREE.MeshStandardMaterial({ color: 0x2c3a2a, roughness: 1 }));
   floor.receiveShadow = true; // until the forest has loaded
   s.add(floor);
