@@ -16,6 +16,7 @@
   let nick = "", room = "", player = null, ws = null, retry = 0, cooldowns = {}, left = false;
   let book = [];                       // moves shown in the spellbook
   let micOn = true, listener = null, micState = "off";
+  let held = false;  // hold to talk: the orb records exactly while it is held, so crowd noise never casts
   let stt = "none";                    // server speech to text; fetched before the join tap (iPhones need the mic started inside the tap)
   (function health(tries) {            // retry: one dropped answer would leave iPhones on the browser's own (flaky) recognition
     fetch(`${API}/health`).then((r) => r.json()).then((h) => { stt = h.stt || "none"; })
@@ -277,6 +278,12 @@
   });
 
   // ---------- spellbook ----------
+  // Everyone's starting spells: every game shows them, after your own forged and invented moves.
+  const GENERAL = [
+    ["Fireball", "fire", "projectile", 3], ["Thunder Call", "lightning", "strike", 3], ["Spiral Sphere", "ice", "melee", 3],
+    ["Earth Wall", "physical", "defend", 2], ["Uppercut", "physical", "melee", 2], ["Right Hook", "physical", "melee", 2],
+    ["Roundhouse Kick", "physical", "melee", 2], ["Front Kick", "physical", "melee", 2],
+  ].map(([name, type, kind, power]) => ({ id: `general:${name}`, name, type, kind, power, creator: null }));
   function remember(move) {
     if (!move?.id) return;
     book = [move, ...book.filter((m) => m.id !== move.id)].slice(0, 40);
@@ -297,8 +304,10 @@
     } catch {}
   }
   function renderBook() {
-    $("bookCount").textContent = book.length ? `· ${book.length}` : "";
-    $("book").innerHTML = book.length ? book.map((m) => {
+    const own = book.filter((m) => m.creator === nick);
+    const list = [...own, ...GENERAL.filter((g) => !own.some((m) => m.name.toLowerCase() === g.name.toLowerCase()))];
+    $("bookCount").textContent = list.length ? `· ${list.length}` : "";
+    $("book").innerHTML = list.length ? list.map((m) => {
       const mine = m.creator === nick;
       const who = mine ? (m.source === "forge" ? "✦ Forged by you · 1.5× power" : "✦ Invented by you") : m.creator ? `by ${esc(m.creator)}` : "from the library";
       return `<button class="spell${mine ? " mine" : ""}" data-id="${esc(m.id)}" data-name="${esc(m.name)}" style="--tc:var(--t-${esc(m.type || "physical")})">
@@ -311,8 +320,8 @@
   // ---------- always-on mic ----------
   const MIC = {
     starting: ["Starting the mic…", "Allow the microphone if your phone asks"],
-    on: ["Listening… shout a spell!", "Tap to turn the mic off"],
-    hot: ["I hear you…", "Keep going!"],
+    on: ["Hold to shout a spell", "Hold the orb, shout, then let go"],
+    hot: ["Listening…", "Let go to cast"],
     off: ["Mic off", "Tap to listen again"],
     blocked: ["Mic blocked", "Tap to try again, or allow it in your browser settings"],
     denied: ["Mic blocked", "Allow it in your browser settings, then tap here to reload"],
@@ -328,13 +337,28 @@
     el.setAttribute("aria-pressed", String(micOn));
     $("micLabel").textContent = MIC[state][0]; $("micSub").textContent = MIC[state][1];
   }
-  $("mic").onclick = () => {
+  const orb = $("mic");
+  const asleep = () => micState === "denied" || micState === "blocked" || micState === "asleep" || micState === "none" || !listener;
+  // A tap starts or wakes the mic: iPhones only let a page start audio on a tap, not on a press.
+  orb.onclick = () => {
     if (micState === "denied") return location.reload();  // the browser only asks again after a reload
-    if (micState === "blocked" || micState === "asleep" || micState === "none" || !listener) { micOn = true; return startListening(); }
-    micOn = !micOn;
-    micOn ? listener.resume() : listener.pause();
-    setMic(micOn ? "on" : "off");
+    if (asleep()) { micOn = true; startListening(); }
   };
+  // Holding the orb records; letting go sends it.
+  orb.addEventListener("pointerdown", (e) => {
+    if (asleep() || !listener.release) return;  // the tap above wakes it; the browser's own recognition listens by itself
+    e.preventDefault(); orb.setPointerCapture?.(e.pointerId);
+    micOn = true; held = true; setMic("hot");
+  });
+  const letGo = () => {
+    listener?.resume?.();  // letting go is a tap too, so this keeps the phone's audio awake
+    if (!held) return;
+    held = false;
+    if (listener?.release?.() === 0) return setMic("asleep");  // nothing came in: one tap wakes the mic
+    setMic("on");
+  };
+  orb.addEventListener("pointerup", letGo);
+  orb.addEventListener("pointercancel", letGo);
 
   function startListening() {
     setMic("starting");
@@ -391,26 +415,23 @@
         const x = new Float32Array(e.inputBuffer.getChannelData(0));
         let sum = 0; for (let i = 0; i < x.length; i++) sum += x[i] * x[i];
         const rms = Math.sqrt(sum / x.length);
-        const loud = rms > Math.max(0.025, floor * 3.2);
-        if (!speaking) {
-          floor = 0.95 * floor + 0.05 * rms;
-          pre.push(x); if (pre.length > 6) pre.shift();
-          if (loud) { speaking = true; chunks = [...pre]; silentMs = 0; spokenMs = 0; peak = rms; setMic("hot"); }
-          return;
-        }
-        chunks.push(x); spokenMs += frameMs; peak = Math.max(peak, rms);
-        silentMs = loud ? 0 : silentMs + frameMs;
-        if (silentMs > 550 || spokenMs > 4000) {
-          speaking = false; setMic(micOn ? "on" : "off");
-          if (spokenMs - silentMs > 250 && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(chunks, sr));
-          chunks = [];
-        }
+        if (held) { if (!speaking) { speaking = true; chunks = [...pre]; peak = 0; } chunks.push(x); peak = Math.max(peak, rms); return; }
+        if (speaking) { pre = []; }
+        speaking = false;
+        pre.push(x); if (pre.length > 6) pre.shift();
+        return;
       };
       src.connect(node); node.connect(ctx.destination);
       setMic("on");
     }).catch((err) => { if (!stopped) micError(err, askedAt); });
     return {
       pause: () => { paused = true; },
+      // let go of the orb: send what was said while it was held (a quick tap sends nothing)
+      release: () => {
+        const c = chunks; chunks = []; speaking = false;
+        if (c.length * frameMs > 350 && !window.IF_forging) cast("", Math.min(1, peak * 6), wav(c, sr));
+        return c.length;
+      },
       resume: () => { paused = false; ctx.resume(); },
       stop: () => { stopped = paused = true; stream?.getTracks().forEach((t) => t.stop()); try { ctx.close().catch(() => {}); } catch {} },
       wake: () => { if (ctx.state !== "running") ctx.resume().catch(() => {}); },

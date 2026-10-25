@@ -87,10 +87,10 @@ TYPE_WORDS = [
     ("shadow", r"shadow|dark|night|moon|ghost|wolf|bat|curse|crow|raven|void|mirror"),
 ]
 KIND_WORDS = [
-    ("defend", r"block|shield|guard|ward|duck|protect|parry"),
+    ("defend", r"block|shield|guard|ward|duck|protect|parry|wall|barrier"),
     ("projectile", r"ball|throw|blast|shoot|orb|beam|fling|cannon|volley|spit|breath"),
     ("strike", r"rain|meteor|sky|summon|call|bolt from|smite|comet|avalanche"),
-    ("shockwave", r"stomp|quake|spin|tornado|wave|howl|roar|slam the ground|whirl|pirouette"),
+    ("shockwave", r"stomp|quake|spin|tornado|wave|howl|roar|slam|smash|pound|crash|shatter|ground|whirl|pirouette"),
 ]
 EFFECT = {"physical": "thorn_burst", "fire": "ember_orb", "ice": "frost_crystals", "lightning": "wisp_bolt", "shadow": "moon_smoke"}
 # Plain prompts Kimodo handles (they also appear in the mock library, so they often reuse a motion).
@@ -115,7 +115,7 @@ def keyword_spec(text: str) -> dict[str, Any]:
     name = " ".join(w.capitalize() for w in re.sub(r"[^a-zA-Z' ]+", " ", text).split()[:5]) or "Wild Spell"
     return {
         "name": name, "aliases": [name.lower(), text.lower().strip()[:40]], "type": mtype, "kind": kind,
-        "effect": EFFECT[mtype], "kimodo_prompt": prompt, "hit_joint": hit, "duration": 1.2, "power": 2,
+        "effect": "shockwave" if kind == "shockwave" else ("earth_wall" if re.search(r"wall|earth|stone|rock", t) else "fairy_dust") if kind == "defend" else EFFECT[mtype], "kimodo_prompt": prompt, "hit_joint": hit, "duration": 1.2, "power": 2,
     }
 
 

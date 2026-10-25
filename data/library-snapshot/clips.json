@@ -1,0 +1,272 @@
+{
+ "idle_fighting": {
+  "name": "idle_fighting",
+  "prompt": "a person stands in a relaxed fighting stance, bouncing lightly on the feet with both fists up",
+  "duration": 4.0,
+  "motion_id": "clip_idle_fighting",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915533
+ },
+ "idle_breathe": {
+  "name": "idle_breathe",
+  "prompt": "a person stands in a fighting stance and breathes slowly, shifting weight from foot to foot",
+  "duration": 4.0,
+  "motion_id": "clip_idle_breathe",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915537
+ },
+ "idle_bramble": {
+  "name": "idle_bramble",
+  "prompt": "a person stands tall and proud in a fighting stance with the chest out, shifting weight slowly",
+  "duration": 4.0,
+  "motion_id": "clip_idle_bramble",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915537
+ },
+ "idle_marigold": {
+  "name": "idle_marigold",
+  "prompt": "an old person stands hunched in a fighting stance, swaying gently from side to side",
+  "duration": 4.0,
+  "motion_id": "clip_idle_marigold",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915537
+ },
+ "idle_flicker": {
+  "name": "idle_flicker",
+  "prompt": "a childlike person bounces quickly on the toes in a fighting stance, full of energy",
+  "duration": 4.0,
+  "motion_id": "clip_idle_flicker",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915537
+ },
+ "idle_rime": {
+  "name": "idle_rime",
+  "prompt": "a person stands very still and upright in a fighting stance, breathing calmly",
+  "duration": 4.0,
+  "motion_id": "clip_idle_rime",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915537
+ },
+ "idle_hush": {
+  "name": "idle_hush",
+  "prompt": "a stealthy person crouches low in a fighting stance and shifts from side to side",
+  "duration": 4.0,
+  "motion_id": "clip_idle_hush",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915537
+ },
+ "step_forward": {
+  "name": "step_forward",
+  "prompt": "a person in a fighting stance takes one quick step forward",
+  "duration": 1.0,
+  "motion_id": "clip_step_forward",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915539
+ },
+ "step_back": {
+  "name": "step_back",
+  "prompt": "a person in a fighting stance takes one quick step backward",
+  "duration": 1.0,
+  "motion_id": "clip_step_back",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915539
+ },
+ "dodge_left": {
+  "name": "dodge_left",
+  "prompt": "a person quickly sidesteps to their left and ducks the head",
+  "duration": 1.0,
+  "motion_id": "clip_dodge_left",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915539
+ },
+ "dodge_right": {
+  "name": "dodge_right",
+  "prompt": "a person quickly sidesteps to their right and ducks the head",
+  "duration": 1.0,
+  "motion_id": "clip_dodge_right",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915539
+ },
+ "jump": {
+  "name": "jump",
+  "prompt": "a person jumps straight up with both feet and lands back in a fighting stance",
+  "duration": 1.2,
+  "motion_id": "clip_jump",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915540
+ },
+ "block": {
+  "name": "block",
+  "prompt": "a person raises both forearms in front of the face and braces to block",
+  "duration": 1.0,
+  "motion_id": "clip_block",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915539
+ },
+ "hit_head": {
+  "name": "hit_head",
+  "prompt": "a person gets hit in the face, the head snaps back and they stagger one step backward",
+  "duration": 1.0,
+  "motion_id": "clip_hit_head",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915539
+ },
+ "hit_body": {
+  "name": "hit_body",
+  "prompt": "a person gets punched in the stomach, bends forward and steps back",
+  "duration": 1.0,
+  "motion_id": "clip_hit_body",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915539
+ },
+ "stagger": {
+  "name": "stagger",
+  "prompt": "a person stumbles backward and waves the arms to keep their balance",
+  "duration": 1.5,
+  "motion_id": "clip_stagger",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915541
+ },
+ "fall_back": {
+  "name": "fall_back",
+  "prompt": "a person falls backward onto the ground",
+  "duration": 1.5,
+  "motion_id": "clip_fall_back",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915541
+ },
+ "get_up": {
+  "name": "get_up",
+  "prompt": "a person gets up off the ground from lying on their back",
+  "duration": 2.5,
+  "motion_id": "clip_get_up",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915542
+ },
+ "charge_up": {
+  "name": "charge_up",
+  "prompt": "a person crouches and pulls both fists back to the hips, gathering strength",
+  "duration": 2.0,
+  "motion_id": "clip_charge_up",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915543
+ },
+ "taunt": {
+  "name": "taunt",
+  "prompt": "a person beckons with one hand, waving the opponent to come closer",
+  "duration": 2.0,
+  "motion_id": "clip_taunt",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915543
+ },
+ "entrance": {
+  "name": "entrance",
+  "prompt": "a person bows and then raises both fists into a fighting stance",
+  "duration": 2.5,
+  "motion_id": "clip_entrance",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915542
+ },
+ "victory": {
+  "name": "victory",
+  "prompt": "a happy person raises both fists in the air and celebrates",
+  "duration": 3.0,
+  "motion_id": "clip_victory",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915544
+ },
+ "defeat": {
+  "name": "defeat",
+  "prompt": "a sad person drops to their knees and hangs their head",
+  "duration": 2.5,
+  "motion_id": "clip_defeat",
+  "status": "done",
+  "check": null,
+  "made_at": 1792915542
+ },
+ "punch_right_jab": {
+  "name": "punch_right_jab",
+  "prompt": "a person in a fighting stance snaps a fast right jab forward at head height and pulls it back",
+  "duration": 1.0,
+  "motion_id": "clip_punch_right_jab",
+  "status": "done",
+  "check": null,
+  "made_at": 1792917905
+ },
+ "punch_left_jab": {
+  "name": "punch_left_jab",
+  "prompt": "a person in a fighting stance snaps a fast left jab forward at head height and pulls it back",
+  "duration": 1.0,
+  "motion_id": "clip_punch_left_jab",
+  "status": "done",
+  "check": null,
+  "made_at": 1792917907
+ },
+ "punch_left_hook": {
+  "name": "punch_left_hook",
+  "prompt": "a person in a fighting stance swings a wide left hook at head height",
+  "duration": 1.2,
+  "motion_id": "clip_punch_left_hook",
+  "status": "done",
+  "check": null,
+  "made_at": 1792917907
+ },
+ "punch_right_hook": {
+  "name": "punch_right_hook",
+  "prompt": "a person in a fighting stance swings a wide right hook at head height",
+  "duration": 1.2,
+  "motion_id": "clip_punch_right_hook",
+  "status": "done",
+  "check": null,
+  "made_at": 1792917907
+ },
+ "duck": {
+  "name": "duck",
+  "prompt": "a person in a fighting stance ducks down quickly under a punch and comes back up",
+  "duration": 1.0,
+  "motion_id": "clip_duck",
+  "status": "done",
+  "check": null,
+  "made_at": 1792917907
+ },
+ "dodge_back": {
+  "name": "dodge_back",
+  "prompt": "a person in a fighting stance leans back and hops one step backward to dodge",
+  "duration": 1.0,
+  "motion_id": "clip_dodge_back",
+  "status": "done",
+  "check": null,
+  "made_at": 1792917907
+ },
+ "getup_knees": {
+  "name": "getup_knees",
+  "prompt": "a person gets up from kneeling on both knees to standing in a fighting stance",
+  "duration": 2.0,
+  "motion_id": "clip_getup_knees",
+  "status": "done",
+  "check": null,
+  "made_at": 1792917908
+ }
+}
