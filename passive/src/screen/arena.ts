@@ -7,8 +7,26 @@ import * as THREE from "three";
 import { REFEREE } from "../core/arena.ts";
 import type { FxLook } from "./fx.ts";
 import type { Stage } from "./stage.ts";
+import { loadForest } from "../arena/forest.ts";
 
 export interface ArenaSet { look: FxLook; update(t: number, dt: number): void }
+
+/** The night forest (characters/public/arena.glb), softly lit: a moonlit key, a violet sky fill, haze. */
+export function buildForestArena(stage: Stage): ArenaSet {
+  const s = stage.scene;
+  s.background = new THREE.Color(0x1a1230);
+  s.fog = new THREE.FogExp2(0x1a1230, 0.022);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 64), new THREE.MeshStandardMaterial({ color: 0x2c3a2a, roughness: 1 }));
+  floor.receiveShadow = true; // until the forest has loaded
+  s.add(floor);
+  loadForest().then((g) => { s.add(g); floor.visible = false; }).catch((e) => console.warn("forest not loaded, plain floor:", e));
+  stage.hemi.color.setHex(0x8a7ab8);
+  stage.hemi.groundColor.setHex(0x34442e);
+  stage.hemi.intensity = 0.8;
+  stage.key.color.setHex(0xe6dcff);
+  stage.key.intensity = 2.1;
+  return { look: { dust: 0x9a8f80, stone: 0x5e5648, fist: 0xffe2a8, block: 0xb8e4ff }, update() {} };
+}
 
 const C = {
   skyTop: 0x2c2e57, skyGlow: 0xd29fa4, haze: 0x726890,  // the horizon IS the fog colour

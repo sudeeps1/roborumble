@@ -3,6 +3,7 @@
 // up. Instant attacks test the reactions; a sparring AI can drive either fighter.
 import loadMujoco from "@mujoco/mujoco";
 import * as ort from "onnxruntime-web";
+import * as THREE from "three";
 import { Arena } from "../core/arena.ts";
 import { ATTACKS } from "../core/attacks.ts";
 import type { ArenaEvent, Who } from "../core/events.ts";
@@ -15,7 +16,11 @@ import { STYLES, Sparrer } from "../core/spar.ts";
 import { type MoveSpec, checkSpec, specFromLibrary } from "../core/spells.ts";
 import { World } from "../core/world.ts";
 import elfUrl from "@elf-assets/elf.glb?url";
+import frogUrl from "@elf-assets/frog.glb?url";
 import knightUrl from "@elf-assets/knight.glb?url";
+import sorceressUrl from "@elf-assets/sorceress.glb?url";
+import wizardUrl from "@elf-assets/wizard.glb?url";
+import { loadForest } from "../arena/forest.ts";
 import { loadHumanModel } from "./humanRig.ts";
 import { type Look, View } from "./render.ts";
 
@@ -75,11 +80,11 @@ if (clips.size) sources.push(clips);
 if (plannerUp) sources.push(new PlannerSource(planner));
 
 // Who fights: one character per fighter from ../characters (?p1=elf&p2=knight is the default).
-const CHARACTERS: Record<string, string> = { elf: elfUrl, knight: knightUrl };
+const CHARACTERS: Record<string, string> = { elf: elfUrl, knight: knightUrl, sorceress: sorceressUrl, wizard: wizardUrl, frog: frogUrl };
 // How far each one tucks its elbows in its guard (Fighter.guardTuck). Tuned so the elbows touch the
 // ribs about equally: at full tuck a third of the knight's elbow armour pressed into his
 // breastplate (10% for the elf); at 0.35 it's 9%.
-const GUARD_TUCK: Record<string, number> = { elf: 1, knight: 0.35 };
+const GUARD_TUCK: Record<string, number> = { elf: 1, knight: 0.35, sorceress: 0.7, wizard: 0.6, frog: 0.8 }; // the new three: first guesses
 const picks = [params.get("p1") ?? "elf", params.get("p2") ?? "knight"].map((c) => (c in CHARACTERS ? c : "elf"));
 const title = (c: string) => c[0].toUpperCase() + c.slice(1);
 const NAMES: [string, string] = picks[0] === picks[1] ? [`${title(picks[0])} 1`, `${title(picks[1])} 2`] : [title(picks[0]), title(picks[1])];
@@ -98,6 +103,17 @@ const view = new View(document.body, world, [0xf0a63c, 0x6c8cff], [
 say(`Loading the ${picks[0]} and the ${picks[1]}…`);
 const chars = await view.loadCharacters(picks.map((c) => CHARACTERS[c])); // ../characters, rigged to the G1
 const startLook = (params.get("look") as Look) ?? (chars ? "character" : "human");
+// the night forest (characters/public/arena.glb) by default; ?arena=0 keeps the plain floor. The rig's own
+// floor, ring and grid go away under it (the forest's grass is flattened to the physics floor near the ring).
+if (params.get("arena") !== "0") {
+  loadForest().then((forest) => {
+    for (const o of [...view.scene.children]) {
+      const g = (o as THREE.Mesh).geometry;
+      if (g?.type === "CircleGeometry" || g?.type === "RingGeometry" || o.type === "PolarGridHelper") o.visible = false;
+    }
+    view.scene.add(forest);
+  }).catch((e) => console.warn("forest not loaded:", e));
+}
 view.setLook(startLook);
 view.trackSpells(() => arena.projectiles(), () => arena.time);
 const { spells, listed: spellsListed } = await spellsLoading;

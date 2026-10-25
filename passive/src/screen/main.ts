@@ -5,7 +5,10 @@
 import loadMujoco from "@mujoco/mujoco";
 import * as ort from "onnxruntime-web";
 import elfUrl from "@elf-assets/elf.glb?url";
+import frogUrl from "@elf-assets/frog.glb?url";
 import knightUrl from "@elf-assets/knight.glb?url";
+import sorceressUrl from "@elf-assets/sorceress.glb?url";
+import wizardUrl from "@elf-assets/wizard.glb?url";
 import * as THREE from "three";
 import { Arena, SPAWNS } from "../core/arena.ts";
 import type { ArenaEvent, Who } from "../core/events.ts";
@@ -17,7 +20,7 @@ import { STYLES, Sparrer } from "../core/spar.ts";
 import { type MoveSpec, specFromLibrary } from "../core/spells.ts";
 import { World } from "../core/world.ts";
 import { GameFx } from "../fx/adapter.ts";
-import { buildArena } from "./arena.ts";
+import { buildArena, buildForestArena } from "./arena.ts";
 import { Director } from "./camera.ts";
 import { Fx, typeColors } from "./fx.ts";
 import { Hud, type SpellInfo } from "./hud.ts";
@@ -30,10 +33,19 @@ const boot = document.getElementById("boot")!;
 const say = (s: string) => (boot.textContent = s);
 
 /** The two fighters. Names are invented; colours are the HUD's team colours. */
-const ROSTER = [
-  { id: "elf", name: "Sylvara", title: "Warden of the Silverwood", url: elfUrl, hue: 0, tuck: 1, color: "#e8806e" },
-  { id: "knight", name: "Sir Aldric", title: "The Iron Oath", url: knightUrl, hue: -2.45, tuck: 0.35, color: "#7b9cf0" },
-] as const;
+/** Every fighter (?p1=wizard&p2=frog picks; elf vs knight by default). tuck: Fighter.guardTuck. */
+const CAST: Record<string, { name: string; title: string; url: string; tuck: number }> = {
+  elf: { name: "Sylvara", title: "Warden of the Silverwood", url: elfUrl, tuck: 1 },
+  knight: { name: "Sir Aldric", title: "The Iron Oath", url: knightUrl, tuck: 0.35 },
+  sorceress: { name: "Morwenna", title: "Mistress of the Hollow Moon", url: sorceressUrl, tuck: 0.7 },
+  wizard: { name: "Old Tobias", title: "Keeper of the Leaning Tower", url: wizardUrl, tuck: 0.6 },
+  frog: { name: "Bramblehop", title: "Knight of the Lily Pad", url: frogUrl, tuck: 0.8 },
+};
+const SIDE = [{ hue: 0, color: "#e8806e" }, { hue: -2.45, color: "#7b9cf0" }];
+const ROSTER = [params.get("p1") ?? "elf", params.get("p2") ?? "knight"].map((id, i) => {
+  const c = id in CAST ? id : i ? "knight" : "elf";
+  return { id: c, ...CAST[c], ...SIDE[i] };
+});
 export const RULES = { roundSeconds: 60, winsNeeded: 2, introS: 2.6, koHoldS: 3.6, victoryS: 6 };
 
 // ---------------------------------------------------------------- the sim (as the rig boots it)
@@ -77,7 +89,7 @@ const fresh = new Set<string>(); // spells cast for the first time ever (the HUD
 say("Loading the elf and the knight…");
 const stage = new Stage(document.body, world);
 await stage.loadCharacters(ROSTER.map((r) => r.url), ROSTER.map((r) => r.hue));
-const set = buildArena(stage);
+const set = params.get("arena") === "meadow" ? buildArena(stage) : buildForestArena(stage);
 const fx = new Fx(arena, set.look, (n) => known.get(n));
 stage.scene.add(fx.root);
 // ?fx=game: the game's spell effects (src/fx, one look per effect tag) draw the spells and hits instead;
