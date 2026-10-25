@@ -6,9 +6,9 @@
 // heading: right hip -> left hip is +Y, so the pelvis faces +X), z kept.
 //   guard (+ .low/.high)  the planner's idleBoxing as the fighter follows it (fighter.raw: before
 //                         waistToHips and before the guard-tuck overlay), a mid-bounce frame, feet planted
-//   guard.up              guard.high with its pelvis pitch moved into the waist: the same upper body on
-//                         an upright pelvis, so a get-up that ends on it clears the fighter's standing
-//                         test (pelvis z > 0.66, tilt < 0.3 rad) with room to spare
+//   guard.up              guard.high with its waist pitch moved into the pelvis (the planner's guard tips
+//                         the pelvis back): the same upper body on an upright pelvis, so a get-up that
+//                         ends on it clears the fighter's standing test (z > 0.66, tilt < 0.3 rad)
 //   lying.back/.front     real knockdown poses at the moment the stance becomes "down"
 //   kneel                 the body when the fighter asks for getup.stand (physics, after the planner's
 //                         getup.knees): what a getup.stand clip really starts from
@@ -21,7 +21,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { NJ } from "../../src/core/g1.ts";
-import { qmul, qrot, tiltOf, wrapPi, yawQuat } from "../../src/core/math.ts";
+import { axisAngleQuat, qmul, qrot, tiltOf, wrapPi, yawQuat } from "../../src/core/math.ts";
 
 const HERE = import.meta.dirname;
 const args = process.argv.slice(2);
@@ -58,7 +58,7 @@ const KNOWN = new Set([...REQUIRED, "guard.elf", "guard.knight"]);
 function check(path: string): number {
   const spec = JSON.parse(readFileSync(path, "utf8"));
   const anchorsPath = resolve(dirname(path), spec.anchors ?? "anchors.json");
-  const anchors: Record<string, { qpos: number[] }> = existsSync(anchorsPath) ? JSON.parse(readFileSync(anchorsPath, "utf8")) : {};
+  const anchors: Record<string, { qpos: number[]; info?: { offset?: number[] } }> = existsSync(anchorsPath) ? JSON.parse(readFileSync(anchorsPath, "utf8")) : {};
   const errors: string[] = [], warns: string[] = [];
   const err = (id: string, m: string) => errors.push(`${id}: ${m}`), warn = (id: string, m: string) => warns.push(`${id}: ${m}`);
   if (!existsSync(anchorsPath)) errors.push(`anchors file missing: ${anchorsPath}`);
@@ -97,6 +97,9 @@ function check(path: string): number {
       if (k.offset !== undefined && !(Array.isArray(k.offset) && k.offset.length === 3 && k.offset.every(Number.isFinite) && Math.hypot(k.offset[0], k.offset[1]) < 1.5 && Math.abs(k.offset[2]) <= Math.PI)) err(id, `bad offset ${JSON.stringify(k.offset)}`);
       const f = frameOf(k.t);
       if (kfFrames.has(f)) err(id, `two keyframes on frame ${f}`); kfFrames.add(f);
+      // a dodge anchor's pelvis sits off its feet: keyed without its info.offset, the feet would jump
+      const ao = anchors[k.anchor]?.info?.offset, ko = k.offset ?? [0, 0, 0];
+      if (String(k.anchor).startsWith("dodge.") && ao && Math.hypot(ko[0] - ao[0], ko[1] - ao[1]) > 0.03) warn(id, `${k.anchor} keyed at offset ${JSON.stringify(ko)}, its footprint wants ${JSON.stringify(ao)}`);
     }
     if (kfs.length && frameOf(kfs[0].t) !== 0) warn(id, "first keyframe isn't at t=0");
     if (kfs.length > 20) err(id, "over 20 keyframes");
@@ -115,6 +118,14 @@ function check(path: string): number {
       if (!a || !b || a.anchor !== b.anchor || b.t !== "end" || (b.offset ?? [0, 0, 0]).some((v: number) => Math.abs(v) > 1e-9)) err(id, "loop must start and end on the same anchor with no offset");
     }
     if (j.motion.startsWith("punch.") && !["l_hand", "r_hand"].includes(j.meta?.hit_limb)) err(id, "punch without meta.hit_limb");
+    // ClipSource builds the strike from hit_limb + hit_frame (30 fps frames); without it the clip gets the planner's window
+    if (j.motion.startsWith("punch.") && !(Number.isInteger(j.meta?.hit_frame) && j.meta.hit_frame > 0 && j.meta.hit_frame < nf)) err(id, `punch meta.hit_frame ${j.meta?.hit_frame} must be a frame inside the clip`);
+    // a get-up that ends keyed on a pose must end clear of the fighter's standing test (z > 0.66, tilt < 0.3 rad), or it reads as half up
+    const last = kfs[kfs.length - 1];
+    if (j.motion.startsWith("getup") && last?.t === "end" && anchors[last.anchor]) {
+      const q = anchors[last.anchor].qpos, tl = tiltOf([q[3], q[4], q[5], q[6]]);
+      if (!(q[2] > 0.68 && tl < 0.25)) err(id, `ends on ${last.anchor} (pelvis z ${q[2].toFixed(3)}, tilt ${(tl * 57.3).toFixed(1)} deg): too close to the standing test (z > 0.66, tilt < 17 deg)`);
+    }
     if (["block", "duck", "jump"].includes(j.motion) || j.motion.startsWith("dodge.")) {
       if (!(j.meta?.active > 0 && j.meta.active <= dur)) err(id, `meta.active ${j.meta?.active} must be in (0, duration]`);
     }
@@ -411,11 +422,11 @@ const guardSoles = soles(G);
  * Damped least squares on the leg joints: the soles back onto the guard's. Height counts fully and
  * the footprint's xy at `xyW` (a deep duck may slide a foot a little). Returns the weighted rms miss (m).
  */
-function plantFeet(q: number[], xyW = 1): number {
+function plantFeet(q: number[], xyW = 1, target = guardSoles): number {
   let rms = 0;
   const w = (i: number) => (i % 3 === 2 ? 1 : xyW);
   for (let it = 0; it < 40; it++) {
-    const s0 = soles(q), r = s0.map((v, i) => (v - guardSoles[i]) * w(i));
+    const s0 = soles(q), r = s0.map((v, i) => (v - target[i]) * w(i));
     rms = Math.sqrt(r.reduce((t, v) => t + v * v, 0) / soleGeoms.length);
     if (rms < 2e-4) break;
     const cols = LEG.map((j) => { const qq = q.slice(); qq[7 + j] += 1e-4; return soles(qq).map((v, i) => ((v - s0[i]) / 1e-4) * w(i)); });
@@ -461,6 +472,82 @@ for (const pitch of [0.2, 0.3, 0.4, 0.5, 0.6]) {
 }
 if (duck) keep("duck", duck, "synthetic: guard sitting into the legs and folding forward (pelvis tilt + waist), head ~0.24 m lower, legs solved to keep the guard's footprint; mid-clip keyframe at the bottom of a duck");
 
+// ================= synthetic dodges: guard leaning out of the way, feet where the guard has them =================
+// The fighter's dodge overlay tilts the whole body 0.32 rad to the side (0.2 back) on soft knees. Here
+// the waist bends that way, the pelvis tilts (up to the overlay's angle) and shifts that way until the
+// head is DODGE_HEAD out of the way. Of the poses that keep the feet where the guard has them (soles
+// within 12 mm rms), the one that shifts the pelvis least wins: moving the body's mass is what SONIC
+// is slow at, and clip-check wants the head 0.18 m out by 0.3 s. Idealized clips (guard -> anchor by
+// 0.2 s, held) through clip-check: head 0.25 m out with a 0.16 m shift and a straight waist: 0.12 m
+// by 0.3 s; least shift, waist bent: 0.25 m -> 0.17-0.19, 0.30 -> 0.20-0.21 (back 0.16), 0.35 ->
+// 0.22-0.23 (back 0.18), nobody falls. The pose is then re-based like every anchor; info.offset
+// [dx, dy, dyaw] says where its pelvis was, which is the keyframe's offset.
+const DODGE_HEAD = Number(opt("--dodge-head", "0.35"));
+function lean(axis: number[], angle: number, shift: [number, number], drop: number, joints: [number, number][]) {
+  const q = G.slice();
+  for (const [j, v] of joints) q[7 + j] = Math.min(R.hi[j], Math.max(R.lo[j], q[7 + j] + v));
+  q[0] += shift[0]; q[1] += shift[1]; q[2] -= drop;
+  const t = qmul(axisAngleQuat(axis[0], axis[1], axis[2], angle), [q[3], q[4], q[5], q[6]]); // about a world axis
+  q[3] = t[0]; q[4] = t[1]; q[5] = t[2]; q[6] = t[3];
+  const miss = plantFeet(q);
+  q[2] += gf.footMin - fk(q).footMin;
+  const f = fk(q);
+  return { q, miss, f, headDrop: gf.head[2] - f.head[2], head: [f.head[0] - gf.head[0], f.head[1] - gf.head[1]], shift };
+}
+const DODGES = [
+  // name, way the head goes (xy), tilt axis + angle (world), the waist joint that bends with it (+ = toward `way`)
+  ["dodge.left", [0, 1], [1, 0, 0], -0.32, 13, -1], ["dodge.right", [0, -1], [1, 0, 0], 0.32, 13, 1], ["dodge.back", [-1, 0], [0, 1, 0], -0.2, 14, -1],
+] as const;
+for (const [key, way, axis, angle0, wj, wsign] of DODGES) {
+  let pick: ReturnType<typeof lean> | null = null, bend = 0, angle: number = angle0;
+  const better = (l: ReturnType<typeof lean>) => !pick || (l.miss < 0.012 ? pick.miss >= 0.012 || Math.hypot(...l.shift) < Math.hypot(...pick.shift) - 1e-9 : l.miss < pick.miss);
+  for (const a of [angle0, angle0 * 0.6, angle0 * 0.3, 0]) {
+    for (let k = 0; k <= 0.8 + 1e-9; k += 0.05) { // up to the joint's limit
+      if (wsign * k + G[7 + wj] > R.hi[wj] - 0.03 || wsign * k + G[7 + wj] < R.lo[wj] + 0.03) break;
+      for (let s = 0; s <= 0.2 + 1e-9; s += 0.01) {
+        const l = lean([...axis], a, [way[0] * s, way[1] * s], key === "dodge.back" ? 0.02 : 0.03, [[wj, wsign * k]]);
+        if (l.head[0] * way[0] + l.head[1] * way[1] < DODGE_HEAD) continue;
+        if (better(l)) { pick = l; bend = r3(k); angle = a; }
+        break;
+      }
+    }
+  }
+  if (!pick) { console.log(`${key}: no lean gets the head ${DODGE_HEAD} m out of the way`); continue; }
+  const off = [r3(pick.q[0]), r3(pick.q[1]), r3(hipHeading([pick.q[3], pick.q[4], pick.q[5], pick.q[6]]))];
+  const away = pick.head[0] * way[0] + pick.head[1] * way[1];
+  keep(key, pick, `synthetic: guard leaning ${key.slice(6)} (extra pelvis tilt ${Math.abs(angle).toFixed(2)} rad, the fighter's overlay tilts ${Math.abs(angle0)}; pelvis shifted ${Math.hypot(off[0], off[1]).toFixed(2)} m, waist bent ${bend} rad), head ${away.toFixed(2)} m out of the way, feet kept where the guard has them; key it with offset info.offset (where its pelvis sits from the guard's)`);
+  anchors[key].qpos = rebase(pick.q).qpos; // offset's dyaw turns it back about its pelvis, its xy puts the pelvis back
+  anchors[key].info = { ...anchors[key].info, offset: off, headAway: r3(away), headDrop: r3(pick.headDrop), waistBend: bend, pelvisTilt: r3(Math.abs(angle)) };
+}
+
+// ================= guard.up: the get-ups' end pose =================
+// The planner's guard tips the pelvis ~12-15 deg BACK and pitches the waist 0.3-0.36 rad forward
+// (waistToHips undoes that for SONIC on the guard path, but get-up clips skip it). guard.up is
+// guard.high (the bounce's top) with that pitch moved out of the waist into the pelvis (top forward),
+// arms, head and feet where they are, so a get-up keyed to end on it clears the fighter's standing
+// test (pelvis z > 0.66, tilt < 0.3 rad) with room to spare.
+{
+  const H = anchors["guard.high"].qpos, hSoles = soles(H);
+  let best: { q: number[]; tilt: number; miss: number; th: number } | null = null;
+  for (let th = 0.04; th <= 0.3 + 1e-9; th += 0.02) {
+    const q = H.slice(), wp = 7 + J.waistPitch;
+    if (q[wp] - th < R.lo[J.waistPitch] + 0.02) break;
+    q[wp] -= th;
+    const t = qmul([q[3], q[4], q[5], q[6]], [Math.cos(th / 2), 0, Math.sin(th / 2), 0]); // about its own y: top forward
+    q[3] = t[0]; q[4] = t[1]; q[5] = t[2]; q[6] = t[3];
+    const miss = plantFeet(q, 1, hSoles);
+    q[2] += fk(H).footMin - fk(q).footMin;
+    const tilt = tiltOf([q[3], q[4], q[5], q[6]]);
+    if (!best || tilt < best.tilt) best = { q, tilt, miss, th };
+  }
+  if (best) {
+    const f = fk(best.q), fh = fk(H);
+    anchors["guard.up"] = { qpos: best.q, note: `guard.high with ${best.th.toFixed(2)} rad of waist pitch moved into the pelvis (pelvis tilt ${(best.tilt * 57.3).toFixed(1)} deg), legs solved to keep its footprint; the end pose for get-ups`,
+      info: { soleMiss: r3(best.miss), headMoved: r3(Math.hypot(f.head[0] - fh.head[0], f.head[1] - fh.head[1], f.head[2] - fh.head[2])), fistsMinusHeadZ: [r3(f.handL[2] - f.head[2]), r3(f.handR[2] - f.head[2])] } };
+    console.log(`guard.up: pelvis tilt ${(best.tilt * 57.3).toFixed(1)} deg (guard.high ${(tiltOf([H[3], H[4], H[5], H[6]]) * 57.3).toFixed(1)}), z ${best.q[2].toFixed(3)}, waist pitch -${best.th.toFixed(2)}, soles off by ${(best.miss * 1000).toFixed(1)} mm, head moved ${(Math.hypot(f.head[0] - fh.head[0], f.head[1] - fh.head[1], f.head[2] - fh.head[2]) * 100).toFixed(1)} cm`);
+  }
+}
+
 // ================= check every anchor, write =================
 
 const issues: string[] = [];
@@ -476,11 +563,15 @@ for (const [k, a] of Object.entries(anchors)) {
   if (over > 0.02) issues.push(`${k}: joints past the limits by up to ${over.toFixed(3)} rad (clamped)`);
   if (Math.abs(q[0]) > 1e-9 || Math.abs(q[1]) > 1e-9 || Math.abs(hipHeading([q[3], q[4], q[5], q[6]])) > 1e-6) issues.push(`${k}: not re-based`);
   const f = fk(q), tilt = tiltOf([q[3], q[4], q[5], q[6]]);
-  const standing = k.startsWith("guard") || k === "block" || k === "duck";
+  const standing = k.startsWith("guard") || k === "block" || k === "duck" || k.startsWith("dodge.");
   if (standing && (Math.abs(f.footL[0]) > 0.015 || Math.abs(f.footR[0]) > 0.015)) issues.push(`${k}: feet not on the floor (${f.footL[0].toFixed(3)}, ${f.footR[0].toFixed(3)})`);
-  if (standing && tilt > (k === "duck" ? 0.7 : 0.4)) issues.push(`${k}: tilted ${(tilt * 57.3).toFixed(0)} deg`);
+  if (standing && tilt > (k === "duck" || k.startsWith("dodge.") ? 0.7 : 0.4)) issues.push(`${k}: tilted ${(tilt * 57.3).toFixed(0)} deg`);
+  if (k === "guard.up" && !(q[2] > 0.68 && tilt < 0.2)) issues.push(`${k}: pelvis z ${q[2].toFixed(3)}, tilt ${(tilt * 57.3).toFixed(1)} deg: not clear of the fighter's standing test`);
   if (k.startsWith("lying") && (q[2] > 0.35 || f.minBody < -0.04)) issues.push(`${k}: pelvis z ${q[2].toFixed(2)}, lowest body ${f.minBody.toFixed(2)}`);
-  a.info = { ...(a.info ?? {}), pelvisZ: r3(q[2]), tiltDeg: Math.round(tilt * 57.3), feetZ: [r3(f.footL[0]), r3(f.footR[0])], headZ: r3(f.head[2]) };
+  // every anchor, whatever it is: no collision geom more than 1 cm into the floor (MuJoCo's contacts)
+  const gap = floorGap(q);
+  if (gap < -0.01) issues.push(`${k}: ${(-gap * 100).toFixed(1)} cm into the floor`);
+  a.info = { ...(a.info ?? {}), pelvisZ: r3(q[2]), tiltDeg: Math.round(tilt * 57.3), feetZ: [r3(f.footL[0]), r3(f.footR[0])], headZ: r3(f.head[2]), floorGap: r3(gap) };
   a.qpos = q.map(r5);
 }
 for (const i of issues) console.log(`  FAIL  ${i}`);

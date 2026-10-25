@@ -1125,9 +1125,11 @@ export class Fighter {
     if (stage === 1) { this.rise.cap = Math.max(this.rise.assist > 0 ? this.rise.cap : 0, TUNE.standHelp); this.rise.assist = Math.max(this.rise.assist, 0.01); }
     this.ask(stage === 0 ? "getup.knees" : "getup.stand", "getup", { fromRobot: true, stage, speed: -1, seed: TUNE.getupSeed ?? undefined }, (clip) => {
       if (!clip) { this.rise.failed = true; return; }
-      // a get-up that ends standing (one clip from the floor all the way up) plays to its end
+      // a get-up clip that ends standing (one clip from the floor all the way up) plays to its end.
+      // Kimodo's own fighting stance sits right at upHeight (pelvis 0.655-0.67 m, 13-16 deg), so a
+      // clip's last frame counts as standing with a looser test (a kneel is about 0.38 m)
       const last = clip.frames[clip.frames.length - 1];
-      this.rise.full = stage === 0 && last[2] > TUNE.upHeight && tiltOf([last[3], last[4], last[5], last[6]]) < 0.3 ? (clip.frames.length - 1) / REF_HZ : 0;
+      this.rise.full = stage === 0 && clip.source.startsWith("clip") && last[2] > 0.55 && tiltOf([last[3], last[4], last[5], last[6]]) < 0.45 ? (clip.frames.length - 1) / REF_HZ : 0;
     });
   }
 

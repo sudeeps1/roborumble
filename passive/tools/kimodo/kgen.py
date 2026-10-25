@@ -18,6 +18,8 @@ os.environ.setdefault("TEXT_ENCODER_MODE", "local")
 
 import argparse
 import contextlib
+import gc
+import glob
 import json
 import math
 import re
@@ -33,6 +35,7 @@ MODEL = "Kimodo-G1-RP-v1"
 LLM_DIM = 4096
 MAX_FRAMES = 300  # Kimodo's 10 s cap
 FRAME_BUDGET = 64 * 64  # samples x frames per denoiser batch (x3 inside separated CFG); tiny next to the 17 GB encoder
+CLIP_RE = re.compile(r"s\d+\.json")  # OUTDIR/<id>/s<k>.json
 
 
 class JobError(Exception):
@@ -208,12 +211,16 @@ def load_jobs(path):
     return spec.get("defaults") or {}, anchors, spec["jobs"]
 
 
+def safe_id(jid):
+    return isinstance(jid, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", jid) is not None and ".." not in jid
+
+
 def resolve(job, defaults, anchors, rig):
     """Validate one job and build its constraints. Returns a plan dict; raises JobError."""
     if not isinstance(job, dict):
         raise JobError("job is not an object")
     jid = job.get("id")
-    if not isinstance(jid, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", jid) or ".." in jid:
+    if not safe_id(jid):
         raise JobError(f"id must be a folder-safe string, got {jid!r}")
     g = lambda k, d=None: job[k] if k in job else defaults.get(k, d)
     warn = []
@@ -426,29 +433,57 @@ def write_sample(outdir, plan, k, qpos, gen_ms, batch_n, no_text):
     return {"job": plan["id"], "motion": plan["motion"], "file": rel, "sample": k}
 
 
+def read_rows(path):
+    try:
+        with open(path) as f:
+            rows = json.load(f)
+    except Exception:
+        return []
+    return [r for r in rows if isinstance(r, dict) and "job" in r] if isinstance(rows, list) else []
+
+
+def write_rows(path, rows):
+    rows = sorted(rows, key=lambda r: (str(r["job"]), r.get("sample", 0)))
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(rows, f, indent=0)
+    os.replace(tmp, path)
+
+
 class Manifest:
-    """OUTDIR/manifest_<i>of<n>.json, rewritten after every batch; rerunning a job replaces its rows."""
+    """OUTDIR/manifest_<i>of<n>.json, rewritten after every batch. The jobs this run picks leave EVERY
+    manifest in OUTDIR (an earlier run with another --shard spec too), so a job is listed once, by its last run."""
 
     def __init__(self, outdir, shard, job_ids):
         self.path = os.path.join(outdir, f"manifest_{shard[0]}of{shard[1]}.json")
-        old = []
-        if os.path.exists(self.path):
-            try:
-                with open(self.path) as f:
-                    old = json.load(f)
-            except Exception:
-                old = []
-        self.rows = [r for r in old if r.get("job") not in job_ids]
+        self.rows = []
+        for path in glob.glob(os.path.join(outdir, "manifest_*.json")):
+            rows = read_rows(path)
+            keep = [r for r in rows if r["job"] not in job_ids]
+            if os.path.abspath(path) == os.path.abspath(self.path):
+                self.rows = keep
+            elif len(keep) < len(rows):
+                write_rows(path, keep)
 
     def add(self, row):
         self.rows.append(row)
 
     def save(self):
-        rows = sorted(self.rows, key=lambda r: (r["job"], r["sample"]))
-        tmp = self.path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(rows, f, indent=0)
-        os.replace(tmp, self.path)
+        write_rows(self.path, self.rows)
+
+
+def clear_job(outdir, jid):
+    """A rerun replaces the job: delete the clips and constraints.json an earlier run left in OUTDIR/<id>
+    (clip-check scores every clip on disk, manifest or not). Other files stay. Returns the clip count."""
+    d = os.path.join(outdir, jid)
+    if not safe_id(jid) or not os.path.isdir(d):
+        return 0
+    clips = [f for f in os.listdir(d) if CLIP_RE.fullmatch(f)]
+    for f in clips + (["constraints.json"] if os.path.exists(os.path.join(d, "constraints.json")) else []):
+        os.remove(os.path.join(d, f))
+    with contextlib.suppress(OSError):
+        os.rmdir(d)  # only when nothing else is in it
+    return len(clips)
 
 
 def main():
@@ -487,14 +522,31 @@ def main():
         model = load_model(device, args.no_text)
     rig = Rig(model.skeleton if model is not None else None)
 
+    man = None
+    if not args.dry_run:  # once the model is up: every picked job is replaced, even one that then fails
+        ids = {j.get("id") for j in picked if isinstance(j, dict)}
+        man = Manifest(args.out, shard, ids)
+        gone = sum(clear_job(args.out, jid) for jid in ids if isinstance(jid, str))
+        man.save()  # disk and manifests agree from here on
+        if gone:
+            log(f"rerun: deleted {gone} old clips of the picked jobs")
+    stray = sorted(d for d in os.listdir(args.out) if d not in known and os.path.isdir(os.path.join(args.out, d))
+                   and any(CLIP_RE.fullmatch(f) for f in os.listdir(os.path.join(args.out, d))))
+    if stray:
+        log(f"warn: {args.out} also holds clips of {len(stray)} jobs not in this file (clip-check scores them too): "
+            + ", ".join(stray[:8]) + (" ..." if len(stray) > 8 else ""))
+
     plans, failed = [], {}
     for i, job in enumerate(picked):
         jid = job.get("id") if isinstance(job, dict) else f"#{i}"
         try:
             p = resolve(job, defaults, anchors, rig)
             p["no_text"] = args.no_text
-            os.makedirs(os.path.join(args.out, p["id"]), exist_ok=True)
-            with open(os.path.join(args.out, p["id"], "constraints.json"), "w") as f:
+            d = os.path.join(args.out, p["id"])
+            os.makedirs(d, exist_ok=True)
+            if args.dry_run and any(CLIP_RE.fullmatch(f) for f in os.listdir(d)):
+                p["warn"].append("dry run rewrote constraints.json next to an earlier run's clips")
+            with open(os.path.join(d, "constraints.json"), "w") as f:
                 json.dump(p["saved"], f)
             for w in p["warn"]:
                 log(f"warn {p['id']}: {w}")
@@ -526,7 +578,6 @@ def main():
         model.text_encoder(sanitize_texts(uniq))
         log(f"encoded {len(uniq)} prompts in {(time.time() - t0) * 1e3:.0f} ms")
 
-    man = Manifest(args.out, shard, {j.get("id") for j in picked if isinstance(j, dict)})
     left = {p["id"]: p["samples"] for p in plans}
     job_ms = {p["id"]: 0.0 for p in plans}
     done = [0]
@@ -546,11 +597,14 @@ def main():
         live = [it for it in items if it[0]["id"] not in failed]
         if not live:
             return
+        err = None
         try:
             qpos, ms = run_batch(model, rig, live, device)
-        except Exception as e:
-            oom = isinstance(e, torch.cuda.OutOfMemoryError)
+        except Exception as e:  # retry only after leaving this block: e's traceback pins the failed batch's tensors
+            err, oom = f"{type(e).__name__}: {e}", isinstance(e, torch.cuda.OutOfMemoryError)
+        if err:
             if oom:
+                gc.collect()
                 torch.cuda.empty_cache()
             if len(live) > 1 and (oom or len({it[0]['id'] for it in live}) > 1):
                 if oom:
@@ -566,7 +620,7 @@ def main():
                         attempt(its)
                 return
             for pid in {it[0]["id"] for it in live}:
-                finish(next(it[0] for it in live if it[0]["id"] == pid), f"{type(e).__name__}: {e}")
+                finish(next(it[0] for it in live if it[0]["id"] == pid), err)
             return
         per = ms / len(live)
         for (p, k, _), q in zip(live, qpos):

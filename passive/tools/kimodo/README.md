@@ -1,5 +1,27 @@
 # tools/kimodo
 
+Everyday fighter motion from Kimodo, kept only when it works in the physics. The loop:
+prompts and keyframes (`everyday*.json`, poses from `anchors.json`) -> `kgen.py` on the GPU box ->
+`scripts/clip-check.ts` plays every candidate through the fighter the way the game does and scores
+it -> `select.ts` keeps the best passing ones that aren't clearly worse than the planner ->
+`public/clips-everyday/` (index.json + clips + report.md), which the rig loads.
+
+## Pipeline
+On the GPU box (`ubuntu@44.198.171.168`, A10G; one GPU job at a time through `~/gpu`, a flock wrapper):
+```
+BOXDIR=rr/gen tools/kimodo/sync-box.sh ubuntu@44.198.171.168 --setup      # copy passive/ there (first time --setup)
+ssh ubuntu@44.198.171.168 'cd ~/rr/gen && ~/gpu ~/kvenv/bin/python tools/kimodo/kgen.py tools/kimodo/everyday.json --out ~/gen/runN'
+ssh ubuntu@44.198.171.168 'cd ~/rr/gen && tools/kimodo/score-box.sh ~/gen/runN 3'   # clip-check in shards; ORT_THREADS=1-2, <= 3-4 sims (1.8 GB each)
+node tools/kimodo/select.ts OUT ~/gen/runN/score.json --baseline ~/gen/runN/score/baseline.json --keep 2
+~/kvenv/bin/python tools/kimodo/hitframes.py public/g1/g1_29dof.xml OUT/punch_*.json   # punch strike frame = furthest reach
+```
+then copy OUT to `public/clips-everyday/`. ~0.4-1 s of GPU per sample; scoring 5-40 s per candidate.
+- **Characters:** a job with `meta.character` (and motion `step.forward.knight`) is scored under its
+  base key and published as `<key>.<character>`; ClipSource prefers it for that fighter.
+- **What doesn't work (2026-10-25):** Kimodo dodges and step-backs barely move the head/body in physics
+  (SONIC ignores Kimodo's root shift; only a waist bend or real steps move it), and its jumps don't
+  leave the ground. Those stay on the planner unless a candidate passes.
+
 ## kgen
 
 Batch Kimodo-G1 generator. Runs on the GPU box, loads Kimodo-G1-RP-v1 and its LLM2Vec text encoder once,
@@ -13,10 +35,10 @@ ssh ubuntu@44.198.171.168 'cd ~/rr/<you> && ~/gpu ~/kvenv/bin/python tools/kimod
 ```
 
 - `~/gpu` is a flock wrapper: one GPU job at a time on the box. The text encoder alone is ~16 GB, so two loads on the A10G would collide. `--dry-run` and `test_roundtrip.py` don't touch the GPU and don't need it.
-- `--dry-run` loads no model. It validates the file, resolves anchors and offsets, writes `OUTDIR/<id>/constraints.json` and prints one line per job.
+- `--dry-run` loads no model. It validates the file, resolves anchors and offsets, writes `OUTDIR/<id>/constraints.json` and prints one line per job. It deletes nothing, but it does rewrite constraints.json, so give it a fresh OUTDIR. It warns when a job folder already holds clips.
 - `--only a,b` picks jobs by id. `--shard i/n` runs the jobs whose index in the file is `i` mod `n`. Shards are for separate GPUs; two on one A10G don't fit.
 - `--tf32` makes denoiser matmuls 1.46x faster on the A10G. Against fp32 the drift is a median 0.1 deg per hinge (max ~2 deg) and 0.03 cm at the root. Off by default.
-- `--batch N` caps samples per denoiser batch (default 64, at most 4096 frames per batch). On OOM a batch halves itself and retries.
+- `--batch N` caps samples per denoiser batch (default 64, at most 4096 frames per batch). On OOM a batch halves itself and retries. The retry runs after the failed batch's tensors are freed, so a batch that OOMs at 64 goes through as 2 x 32 (measured under a 1.9 GB memory cap).
 - `--no-text` is for debugging. It loads no text encoder and sends empty prompts, which is exactly Kimodo's unconditional branch. The result is constraint-only generation.
 - Downloads are off: kgen sets `HF_HUB_OFFLINE=1`, `LOCAL_CACHE=true` and `TEXT_ENCODER_MODE=local` unless the environment already sets them. Everything comes from the HF cache, including the gated Llama-3-8B under LLM2Vec. `TEXT_ENCODER_MODE=api` reuses a running `kimodo_textencoder` instead.
 - Speed on the A10G at 100 steps: about 0.9 s per sample for 0.8-1.0 s clips and 1.7-2.3 s for 3-4 s clips. That is nearly flat in batch size, because the GPU is already compute-bound at batch 4 (fp32 sgemm). Loading takes 1.3 s for the denoiser and about 100 s for the text encoder. 61 prompts encode in 7 s, each distinct prompt once. Run1 made 81 jobs x 8 = 648 clips in 762 s, peaking at 16.3 GB.
@@ -60,7 +82,13 @@ ssh ubuntu@44.198.171.168 'cd ~/rr/<you> && ~/gpu ~/kvenv/bin/python tools/kimod
   - `qpos` holds Kimodo's G1 CSV rows (`MujocoQposConverter.dict_to_qpos`) as-is, unclamped and not re-based (frame 0 sits 0.1-1.5 cm off the origin), rounded to 1e-6. Only quaternion sign flips between frames are removed.
   - `meta` carries job.meta plus `job, motion, prompt, sample, seed, cfg, steps, duration, frames, gen_ms` (its share of the batch wall time), `batch, model`, and `text: "off"` under `--no-text`.
 - `OUTDIR/<id>/constraints.json` holds the constraints the job ran with, in Kimodo's own save format (`get_save_info`). `kimodo_gen --constraints` and the Kimodo demo load it.
-- `OUTDIR/manifest_<i>of<n>.json` is a list of `{job, motion, file, sample}` with `file` relative to OUTDIR. It is rewritten after every batch, and rerunning a job replaces its rows. **Readers glob `manifest_*.json`**, so shards never collide.
+- `OUTDIR/manifest_<i>of<n>.json` is a list of `{job, motion, file, sample}` with `file` relative to OUTDIR. It is rewritten after every batch. **Readers glob `manifest_*.json`**, so shards never collide.
+- **Reruns replace jobs.** In a real run (not `--dry-run`), once the model has loaded, kgen does two things for each job it picks:
+  - It deletes the job's old `s<k>.json` files and `constraints.json`. It does this even if the rerun then fails, so a failed job is left with no clips. Other files in the folder stay.
+  - It drops the job's rows from every `manifest_*.json` in OUTDIR, including manifests written under another `--shard` spec. Each job is then listed once, by its latest run.
+  - This matters because `scripts/clip-check.ts` (and so `score-box.sh` and `select.ts`) scores every clip on disk, not just the manifest rows; the files on disk and the manifests now always agree.
+  - `--only a,b` reruns a few jobs and leaves the others alone.
+  - Clips of jobs that are no longer in the jobs file are not deleted. kgen only warns about them, so use a fresh `runN` folder per version of the jobs file.
 - Progress lines are `[kgen] job <id> <k>/<n> <ms>`, then a summary line, then one line per failed job.
 
 ### Keyframe pose: why not `qpos_to_motion_dict`

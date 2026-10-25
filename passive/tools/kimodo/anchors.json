@@ -8,7 +8,8 @@
    "pelvisZ": 0.672,
    "tiltDeg": 15,
    "feetZ": [0.001, -0.004],
-   "headZ": 1.094
+   "headZ": 1.094,
+   "floorGap": -0.004
   }
  },
  "guard.low": {
@@ -20,7 +21,8 @@
    "pelvisZ": 0.669,
    "tiltDeg": 13,
    "feetZ": [0.002, -0.002],
-   "headZ": 1.091
+   "headZ": 1.091,
+   "floorGap": -0.002
   }
  },
  "guard.high": {
@@ -32,7 +34,8 @@
    "pelvisZ": 0.698,
    "tiltDeg": 11,
    "feetZ": [0.001, 0.004],
-   "headZ": 1.117
+   "headZ": 1.117,
+   "floorGap": 0
   }
  },
  "lying.back": {
@@ -50,7 +53,8 @@
    "pelvisZ": 0.066,
    "tiltDeg": 92,
    "feetZ": [0, 0],
-   "headZ": 0.083
+   "headZ": 0.083,
+   "floorGap": 0
   }
  },
  "lying.back.2": {
@@ -68,7 +72,8 @@
    "pelvisZ": 0.07,
    "tiltDeg": 89,
    "feetZ": [0, 0],
-   "headZ": 0.077
+   "headZ": 0.077,
+   "floorGap": 0
   }
  },
  "lying.back.3": {
@@ -86,7 +91,8 @@
    "pelvisZ": 0.065,
    "tiltDeg": 86,
    "feetZ": [0, 0],
-   "headZ": 0.079
+   "headZ": 0.079,
+   "floorGap": 0
   }
  },
  "lying.front": {
@@ -104,7 +110,8 @@
    "pelvisZ": 0.117,
    "tiltDeg": 118,
    "feetZ": [0.218, 0.272],
-   "headZ": 0.074
+   "headZ": 0.074,
+   "floorGap": 0
   }
  },
  "lying.front.2": {
@@ -122,18 +129,21 @@
    "pelvisZ": 0.205,
    "tiltDeg": 100,
    "feetZ": [0.185, 0.071],
-   "headZ": 0.088
+   "headZ": 0.088,
+   "floorGap": 0
   }
  },
  "kneel": {
-  "qpos": [0, 0, 0.37056, 0.99844, -0.05239, -0.01937, 0.00102, -0.89048, 0.39759, 0.16792, 2.62105, -0.85298, 0.00881, -0.79892, -0.01828, 0.18382, 2.59614, -0.78777, -0.0521, -0.15125, 0.0034, 0.50733, -0.23122, 0.45642, -0.68705, 0.06688, 0.12607, 0.38096, -0.16266, -0.11855, -0.46833, 0.61733, 0.00406, -0.03194, 0.09232, -0.05704],
-  "note": "planner getup.knees (kneelTwoLeg, height 0.3) end pose, planned from lying.back",
+  "qpos": [0, 0, 0.4288, 0.99897, -0.03124, 0.03303, -0.00103, -0.77878, 0.25341, 0.11134, 2.52007, -0.63194, -0.00059, -0.70021, -0.04541, 0.12279, 2.43914, -0.59592, 0.02977, -0.0707, -0.06718, 0.01466, -0.18993, 0.30148, -0.89925, 0.50364, -0.0276, -0.14742, 0.07709, -0.0778, -0.31002, 0.91837, 0.49717, 0.24687, -0.11742, -0.17777],
+  "note": "physics: the body when the fighter asked for getup.stand after the planner's getup.knees (medoid of 5 clean kneels of 16)",
   "info": {
-   "pelvisZ": 0.371,
-   "kneesZ": [0.054, 0.061],
-   "tiltDeg": 6,
-   "feetZ": [-0.036, -0.016],
-   "headZ": 0.755
+   "pelvisZ": 0.429,
+   "kneesZ": [0.066, 0.066],
+   "spread": 3.645,
+   "tiltDeg": 5,
+   "feetZ": [0, 0],
+   "headZ": 0.851,
+   "floorGap": 0
   }
  },
  "punch.leftJab.hit": {
@@ -151,7 +161,8 @@
    "pelvisZ": 0.672,
    "tiltDeg": 10,
    "feetZ": [0.001, 0.002],
-   "headZ": 1.055
+   "headZ": 1.055,
+   "floorGap": 0
   }
  },
  "punch.rightJab.hit": {
@@ -169,7 +180,8 @@
    "pelvisZ": 0.678,
    "tiltDeg": 7,
    "feetZ": [0.003, 0.005],
-   "headZ": 1.08
+   "headZ": 1.08,
+   "floorGap": 0
   }
  },
  "punch.leftHook.hit": {
@@ -187,7 +199,8 @@
    "pelvisZ": 0.709,
    "tiltDeg": 10,
    "feetZ": [0.035, 0.002],
-   "headZ": 1.083
+   "headZ": 1.083,
+   "floorGap": 0
   }
  },
  "punch.rightHook.hit": {
@@ -205,7 +218,8 @@
    "pelvisZ": 0.709,
    "tiltDeg": 11,
    "feetZ": [0.032, 0.002],
-   "headZ": 1.109
+   "headZ": 1.109,
+   "floorGap": 0
   }
  },
  "block": {
@@ -220,7 +234,8 @@
    "pelvisZ": 0.652,
    "tiltDeg": 15,
    "feetZ": [0.001, -0.004],
-   "headZ": 1.068
+   "headZ": 1.068,
+   "floorGap": -0.004
   }
  },
  "duck": {
@@ -235,7 +250,82 @@
    "pelvisZ": 0.552,
    "tiltDeg": 20,
    "feetZ": [-0.002, -0.004],
-   "headZ": 0.849
+   "headZ": 0.849,
+   "floorGap": -0.004
+  }
+ },
+ "dodge.left": {
+  "qpos": [0, 0, 0.64981, 0.98981, -0.07024, -0.12354, 0.00877, 0.10982, 0.49308, 0.28337, 1.30647, -0.87267, -0.09281, -0.4072, -0.401, 0.06073, 0.92603, -0.01331, 0.2618, -0.17953, -0.4845, 0.35784, -0.62809, 0.25896, -0.23197, -0.40082, 0.39469, 0.39217, -0.05684, -0.43764, -0.3539, 0.12736, -0.56195, -0.29583, -0.31647, -0.26059],
+  "note": "synthetic: guard leaning left (extra pelvis tilt 0.19 rad, the fighter's overlay tilts 0.32; pelvis shifted 0.14 m, waist bent 0.4 rad), head 0.35 m out of the way, feet kept where the guard has them; key it with offset info.offset (where its pelvis sits from the guard's)",
+  "info": {
+   "headDrop": 0.08,
+   "soleMiss": 0.01,
+   "footSlide": 0.006,
+   "fistsMinusHeadZ": [-0.118, 0.002],
+   "fistsAheadOfHead": [0.298, 0.157],
+   "offset": [0, 0.14, 0],
+   "headAway": 0.352,
+   "waistBend": 0.4,
+   "pelvisTilt": 0.192,
+   "pelvisZ": 0.65,
+   "tiltDeg": 16,
+   "feetZ": [-0.004, -0.001],
+   "headZ": 1.014,
+   "floorGap": -0.004
+  }
+ },
+ "dodge.right": {
+  "qpos": [0, 0, 0.64697, 0.98503, 0.11993, -0.12294, -0.01497, 0.25835, 0.34092, 0.28337, 0.8141, -0.5335, -0.2618, -0.75278, -0.56368, 0.06073, 1.48237, -0.40205, -0.10205, -0.17953, 0.4655, 0.35784, -0.62809, 0.25896, -0.23197, -0.40082, 0.39469, 0.39217, -0.05684, -0.43764, -0.3539, 0.12736, -0.56195, -0.29583, -0.31647, -0.26059],
+  "note": "synthetic: guard leaning right (extra pelvis tilt 0.19 rad, the fighter's overlay tilts 0.32; pelvis shifted 0.10 m, waist bent 0.55 rad), head 0.36 m out of the way, feet kept where the guard has them; key it with offset info.offset (where its pelvis sits from the guard's)",
+  "info": {
+   "headDrop": 0.126,
+   "soleMiss": 0.01,
+   "footSlide": 0.009,
+   "fistsMinusHeadZ": [-0.046, -0.11],
+   "fistsAheadOfHead": [0.315, 0.196],
+   "offset": [0, -0.1, 0],
+   "headAway": 0.356,
+   "waistBend": 0.55,
+   "pelvisTilt": 0.192,
+   "pelvisZ": 0.647,
+   "tiltDeg": 20,
+   "feetZ": [0.003, -0.004],
+   "headZ": 0.968,
+   "floorGap": -0.004
+  }
+ },
+ "dodge.back": {
+  "qpos": [0, 0, 0.65175, 0.97466, 0.02403, -0.22235, -0.00548, 0.40713, 0.45163, 0.28337, 1.00456, -0.72007, -0.2618, -0.35935, -0.44575, 0.06073, 1.24584, -0.24826, 0.25541, -0.17953, -0.0845, -0.44216, -0.62809, 0.25896, -0.23197, -0.40082, 0.39469, 0.39217, -0.05684, -0.43764, -0.3539, 0.12736, -0.56195, -0.29583, -0.31647, -0.26059],
+  "note": "synthetic: guard leaning back (extra pelvis tilt 0.20 rad, the fighter's overlay tilts 0.2; pelvis shifted 0.01 m, waist bent 0.8 rad), head 0.35 m out of the way, feet kept where the guard has them; key it with offset info.offset (where its pelvis sits from the guard's)",
+  "info": {
+   "headDrop": 0.149,
+   "soleMiss": 0.002,
+   "footSlide": 0.002,
+   "fistsMinusHeadZ": [0.19, 0.121],
+   "fistsAheadOfHead": [0.276, 0.145],
+   "offset": [-0.01, 0, 0.01],
+   "headAway": 0.35,
+   "waistBend": 0.8,
+   "pelvisTilt": 0.2,
+   "pelvisZ": 0.652,
+   "tiltDeg": 26,
+   "feetZ": [0.001, -0.004],
+   "headZ": 0.944,
+   "floorGap": -0.004
+  }
+ },
+ "guard.up": {
+  "qpos": [0, 0, 0.69718, 0.99975, 0.02219, 0.00225, 0.00005, -0.03158, 0.46617, 0.36939, 0.88427, -0.53074, -0.24775, -0.79108, -0.42629, 0.03321, 0.98965, -0.01386, 0.24909, -0.18696, 0.04169, 0.11535, -1.1183, 0.32821, -0.39914, -0.00191, 0.29842, 0.24517, 0.07727, -0.31282, -0.39197, 0.20185, -0.48073, -0.36867, -0.11279, -0.20659],
+  "note": "guard.high with 0.20 rad of waist pitch moved into the pelvis (pelvis tilt 2.6 deg), legs solved to keep its footprint; the end pose for get-ups",
+  "info": {
+   "soleMiss": 0.002,
+   "headMoved": 0.017,
+   "fistsMinusHeadZ": [-0.049, -0.146],
+   "pelvisZ": 0.697,
+   "tiltDeg": 3,
+   "feetZ": [0.001, 0.004],
+   "headZ": 1.119,
+   "floorGap": 0
   }
  }
 }

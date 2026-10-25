@@ -44,7 +44,7 @@ export interface MotionAsk {
   urgent?: boolean;
   /** which fighter asks (0, 1), filled by the fighter's view of a source that tells fighters apart (forAsker) */
   who?: number;
-  /** that fighter's character (rig: "elf", "knight"); a clip library prefers "guard.<character>" */
+  /** that fighter's character (rig: "elf", "knight"); a clip library prefers "<key>.<character>" */
   character?: string;
 }
 
@@ -172,6 +172,9 @@ interface Prepared {
 const PREPARED = new WeakMap<ClipData, Prepared | null>();
 /** s of crossfade at a loop's seam, and s of a loop served per ask (the next ask plays on from there). */
 export const LOOP = { seam: 0.2, ahead: 2.4 };
+/** Step clips play faster when the fighter hurries: speed/speedAt1x times their pace, up to max
+ *  (footwork circles at 0.35: 1x; backs off when crowded at 0.7: ~1.6x; steps in to punch at 0.85: ~1.9x). */
+export const STEP_PACE = { speedAt1x: 0.45, max: 2 };
 
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
@@ -184,10 +187,23 @@ function prepare(c: ClipData): Prepared | null {
   return out;
 }
 
+/** Why a clip can't be played (ClipSource then answers null and the next source plays instead); null if it can. */
+export function clipProblem(c: ClipData): string | null {
+  return rowsProblem(c) ?? (prepare(c) ? null : "nothing left to play after trim");
+}
+function rowsProblem(c: ClipData): string | null {
+  const m = (c?.meta && typeof c.meta === "object" ? c.meta : {}) as Record<string, unknown>;
+  if (!((num(c?.fps) ?? num(m.fps) ?? 0) > 0)) return "no fps";
+  if (!Array.isArray(c.qpos) || c.qpos.length < 2) return "fewer than 2 rows";
+  // a null or NaN would play as 0 (or poison the body); a zero quaternion can't be turned
+  const bad = c.qpos.findIndex((r) => !Array.isArray(r) || r.length < 36 || !r.slice(0, 36).every((v) => typeof v === "number" && Number.isFinite(v)) || Math.hypot(r[3], r[4], r[5], r[6]) < 0.5);
+  return bad >= 0 ? `row ${bad} is not 36 finite numbers with a root quaternion` : null;
+}
+
 function prepareNow(c: ClipData): Prepared | null {
   const m = (c.meta && typeof c.meta === "object" ? c.meta : {}) as Record<string, unknown>;
   const fps = num(c.fps) ?? num(m.fps) ?? 0;
-  if (!(fps > 0) || !Array.isArray(c.qpos) || c.qpos.length < 2 || c.qpos.some((r) => !r || r.length < 36)) return null;
+  if (rowsProblem(c)) return null;
   const trim = (Array.isArray(c.trim) ? c.trim : m.trim) as unknown;
   let i0 = 0, i1 = c.qpos.length - 1;
   if (Array.isArray(trim) && trim.length === 2 && num(trim[0]) !== undefined && num(trim[1]) !== undefined && trim[1] > trim[0]) {
@@ -245,7 +261,8 @@ const mod = (a: number, n: number) => ((a % n) + n) % n;
  * Motion from recorded clips (Kimodo). Each name maps to one or more variants. A clip is turned
  * to face `facing` and moved to where the body is, then plays from `startFrame`.
  * "step" picks step.forward/back/left/right by the move direction relative to facing.
- * "guard" prefers "guard.<character>" when the library has one for the asking fighter's character.
+ * Any key prefers "<key>.<character>" (guard.elf, step.forward.knight) when the library has one for
+ * the asking fighter's character.
  * A looping clip (guard) plays on: each fighter keeps one variant for good, and its loop runs on
  * the reference frame clock, so a new ask continues where the loop is now (LOOP.ahead s at a time).
  * Get-up clips are different: they keep the heading the body landed with, and the variant whose
@@ -298,7 +315,8 @@ export class ClipSource implements MotionSource {
       const a = Math.atan2(Math.sin(rel), Math.cos(rel));
       key = Math.abs(a) < Math.PI / 4 ? "step.forward" : Math.abs(a) > (3 * Math.PI) / 4 ? "step.back" : a > 0 ? "step.left" : "step.right";
     }
-    if (ask.name === "guard" && ask.character && this.clips.has(`guard.${ask.character}`)) key = `guard.${ask.character}`;
+    // a character's own take on a motion wins (guard.elf, step.forward.knight, punch.leftJab.elf...)
+    if (ask.character && this.clips.has(`${key}.${ask.character}`)) key = `${key}.${ask.character}`;
     const variants = this.clips.get(key);
     if (!variants) return null;
     const ctxEnd = ask.context.slice(36 * 3, 36 * 4);
@@ -319,7 +337,10 @@ export class ClipSource implements MotionSource {
       const n = Math.max(0, Math.min(3, Math.round(((ask.startFrame - ask.contextFrame) * 30) / REF_HZ)));
       origin = ask.context.slice(36 * n, 36 * n + 2);
     } else {
-      frames = p.frames.map(copyFrame);
+      // a hurried step (stepping in to punch asks at 0.85) is a quicker step: Kimodo's steps cover
+      // ~0.23 m/s at their own pace, the planner's ~0.45, and an approach at 1x runs out of time
+      const pace = key.startsWith("step") && (ask.speed ?? 0) > 0 ? Math.min(STEP_PACE.max, Math.max(1, ask.speed! / STEP_PACE.speedAt1x)) : 1;
+      frames = pace > 1.01 ? resample(p.frames.map(copyFrame), REF_HZ * pace, REF_HZ) : p.frames.map(copyFrame);
       yaw0 = yawOf([frames[0][3], frames[0][4], frames[0][5], frames[0][6]]);
     }
     // place: first frame's root at the body's current xy, its heading turned to `facing`

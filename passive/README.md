@@ -358,7 +358,11 @@ public/clips/block_a.json  {"fps": 30, "qpos": [[36 values], ...], "strikes": [.
 - **One-clip get-ups:** a clip that goes all the way to standing can sit under `getup.knees`
   alone. Standing up from any stage counts as up.
 - **Step clips:** `step` picks `step.forward`, `step.back`, `step.left` or `step.right` by
-  direction.
+  direction. Footwork lets a step clip finish before asking for the next.
+- **Per character:** `<key>.<character>` (`guard.elf`, `step.forward.knight`) wins for a fighter
+  whose `character` matches; the rig sets it from `?p1`/`?p2`.
+- **The everyday library:** `public/clips-everyday/` (the rig loads it after `public/clips/`) holds
+  Kimodo clips picked by physics scores; how they're made: `tools/kimodo/README.md`.
 
 ### Spells and other server moves
 A spell is data, not code: a spec (`MoveSpec` in `src/core/spells.ts`) plus its Kimodo clip.

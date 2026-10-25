@@ -247,26 +247,6 @@
    }
   },
   {
-   "id": "step_forward.b",
-   "motion": "step.forward",
-   "prompt": "A person shuffles forward with a short step while holding a fighting stance with fists raised",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 1200,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.25, 0.0, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", 0.25, 0.0]
-   ],
-   "meta": {
-    "variant": "kf"
-   }
-  },
-  {
    "id": "step_forward.c",
    "motion": "step.forward",
    "prompt": "A person steps forward with the front foot then slides the back foot after it with hands up",
@@ -306,6 +286,26 @@
    }
   },
   {
+   "id": "step_forward.e",
+   "motion": "step.forward",
+   "prompt": "A person in a boxing stance lifts the front foot and steps forward then brings the back foot up",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 10000,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": "end", "anchor": "guard", "offset": [0.3, 0.0, 0]}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0.3, 0.0]
+   ],
+   "meta": {
+    "variant": "kf"
+   }
+  },
+  {
    "id": "step_back.a",
    "motion": "step.back",
    "prompt": "A person in a boxing stance takes a quick step backward then settles back into the stance",
@@ -323,45 +323,6 @@
    ],
    "meta": {
     "variant": "kf"
-   }
-  },
-  {
-   "id": "step_back.b",
-   "motion": "step.back",
-   "prompt": "A person shuffles backward with a short step while holding a fighting stance with fists raised",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 1600,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [-0.25, 0.0, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", -0.25, 0.0]
-   ],
-   "meta": {
-    "variant": "kf"
-   }
-  },
-  {
-   "id": "step_back.c",
-   "motion": "step.back",
-   "prompt": "A person steps back with the rear foot then slides the front foot after it with hands up",
-   "duration": 1.0,
-   "samples": 8,
-   "seed": 1700,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", -0.35, 0.0]
-   ],
-   "meta": {
-    "variant": "start"
    }
   },
   {
@@ -385,6 +346,26 @@
    }
   },
   {
+   "id": "step_back.e",
+   "motion": "step.back",
+   "prompt": "A person in a boxing stance lifts the rear foot and steps back then brings the front foot back",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 10100,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": "end", "anchor": "guard", "offset": [-0.3, 0.0, 0]}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", -0.3, 0.0]
+   ],
+   "meta": {
+    "variant": "kf"
+   }
+  },
+  {
    "id": "step_left.a",
    "motion": "step.left",
    "prompt": "A person in a boxing stance takes a quick side step to their left with fists raised",
@@ -399,26 +380,6 @@
    "root": [
     [0, 0, 0],
     ["end", 0.0, 0.3]
-   ],
-   "meta": {
-    "variant": "kf"
-   }
-  },
-  {
-   "id": "step_left.b",
-   "motion": "step.left",
-   "prompt": "A person shuffles sideways to the left while holding a fighting stance with both hands up",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 2000,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, 0.25, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", 0.0, 0.25]
    ],
    "meta": {
     "variant": "kf"
@@ -464,6 +425,26 @@
    }
   },
   {
+   "id": "step_left.e",
+   "motion": "step.left",
+   "prompt": "A person in a boxing stance lifts the left foot and steps left then brings the right foot over",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 10200,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": "end", "anchor": "guard", "offset": [0.0, 0.3, 0]}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0.0, 0.3]
+   ],
+   "meta": {
+    "variant": "kf"
+   }
+  },
+  {
    "id": "step_right.a",
    "motion": "step.right",
    "prompt": "A person in a boxing stance takes a quick side step to their right with fists raised",
@@ -478,26 +459,6 @@
    "root": [
     [0, 0, 0],
     ["end", 0.0, -0.3]
-   ],
-   "meta": {
-    "variant": "kf"
-   }
-  },
-  {
-   "id": "step_right.b",
-   "motion": "step.right",
-   "prompt": "A person shuffles sideways to the right while holding a fighting stance with both hands up",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 2400,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, -0.25, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", 0.0, -0.25]
    ],
    "meta": {
     "variant": "kf"
@@ -543,45 +504,85 @@
    }
   },
   {
-   "id": "dodge_left.a",
-   "motion": "dodge.left",
-   "prompt": "A person in a boxing stance quickly leans their head and upper body to the left then recovers",
-   "duration": 0.8,
+   "id": "step_right.e",
+   "motion": "step.right",
+   "prompt": "A person in a boxing stance lifts the right foot and steps right then brings the left foot over",
+   "duration": 0.9,
    "samples": 8,
-   "seed": 2700,
+   "seed": 10300,
    "cfg": [2.0, 2.0],
    "keyframes": [
     {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, 0.12, 0]}
+    {"t": "end", "anchor": "guard", "offset": [0.0, -0.3, 0]}
    ],
    "root": [
     [0, 0, 0],
-    ["end", 0.0, 0.12]
+    ["end", 0.0, -0.3]
    ],
    "meta": {
-    "variant": "kf",
-    "active": 0.6
+    "variant": "kf"
    }
   },
   {
-   "id": "dodge_left.b",
-   "motion": "dodge.left",
-   "prompt": "A person bends at the knees and slips their head to the left side while keeping fists up",
-   "duration": 0.8,
+   "id": "step_back.f",
+   "motion": "step.back",
+   "prompt": "A person steps back with the rear foot then lifts the front foot and places it back in stance",
+   "duration": 1.0,
    "samples": 8,
-   "seed": 2800,
+   "seed": 10400,
    "cfg": [2.0, 2.0],
    "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, 0.12, 0]}
+    {"t": 0, "anchor": "guard"}
    ],
    "root": [
     [0, 0, 0],
-    ["end", 0.0, 0.12]
+    ["end", -0.35, 0]
    ],
    "meta": {
-    "variant": "kf",
-    "active": 0.6
+    "variant": "start"
+   }
+  },
+  {
+   "id": "step_forward.f",
+   "motion": "step.forward",
+   "prompt": "A person in a boxing stance takes two quick steps forward with fists raised",
+   "duration": 1.6,
+   "samples": 8,
+   "seed": 10500,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": "end", "anchor": "guard", "offset": [0.6, 0, 0]}
+   ],
+   "root": [
+    [0, 0, 0],
+    [0.8, 0.3, 0],
+    ["end", 0.6, 0]
+   ],
+   "meta": {
+    "variant": "two-step",
+    "steps": 2
+   }
+  },
+  {
+   "id": "step_forward.g",
+   "motion": "step.forward",
+   "prompt": "A person steps forward twice with short quick steps while keeping both fists up by the chin",
+   "duration": 1.8,
+   "samples": 8,
+   "seed": 10600,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"}
+   ],
+   "root": [
+    [0, 0, 0],
+    [0.9, 0.32, 0],
+    ["end", 0.65, 0]
+   ],
+   "meta": {
+    "variant": "two-step-start",
+    "steps": 2
    }
   },
   {
@@ -605,65 +606,71 @@
    }
   },
   {
-   "id": "dodge_left.d",
+   "id": "dodge_left.e",
    "motion": "dodge.left",
-   "prompt": "A person in a boxing stance quickly leans their head and upper body to the left then recovers",
+   "prompt": "A person in a boxing stance quickly leans the upper body far to the left and holds it",
    "duration": 0.8,
    "samples": 8,
-   "seed": 3000,
+   "seed": 10700,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.17, "anchor": "dodge.left", "offset": [0, 0.14, 0]},
+    {"t": 0.43, "anchor": "dodge.left", "offset": [0, 0.14, 0]},
+    {"t": "end", "anchor": "guard"}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0, 0]
+   ],
+   "meta": {
+    "variant": "lean-hold",
+    "active": 0.6
+   }
+  },
+  {
+   "id": "dodge_left.f",
+   "motion": "dodge.left",
+   "prompt": "A person quickly leans the upper body to the left then takes a small step to the left",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 10800,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.17, "anchor": "dodge.left", "offset": [0, 0.14, 0]},
+    {"t": 0.43, "anchor": "dodge.left", "offset": [0, 0.14, 0]},
+    {"t": "end", "anchor": "guard", "offset": [0.0, 0.15, 0]}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0.0, 0.15]
+   ],
+   "meta": {
+    "variant": "lean-hold-step",
+    "active": 0.65
+   }
+  },
+  {
+   "id": "dodge_left.g",
+   "motion": "dodge.left",
+   "prompt": "A person slips a punch by bending the knees and dipping the head quickly to the left",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 10900,
    "cfg": [2.0, 1.0],
    "keyframes": [
     {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, 0.12, 0]}
+    {"t": 0.2, "anchor": "dodge.left", "offset": [0, 0.14, 0]},
+    {"t": 0.43, "anchor": "dodge.left", "offset": [0, 0.14, 0]},
+    {"t": "end", "anchor": "guard"}
    ],
    "root": [
     [0, 0, 0],
-    ["end", 0.0, 0.12]
+    ["end", 0, 0]
    ],
    "meta": {
-    "variant": "loose",
-    "active": 0.6
-   }
-  },
-  {
-   "id": "dodge_right.a",
-   "motion": "dodge.right",
-   "prompt": "A person in a boxing stance quickly leans their head and upper body to the right then recovers",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 3100,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, -0.12, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", 0.0, -0.12]
-   ],
-   "meta": {
-    "variant": "kf",
-    "active": 0.6
-   }
-  },
-  {
-   "id": "dodge_right.b",
-   "motion": "dodge.right",
-   "prompt": "A person bends at the knees and slips their head to the right side while keeping fists up",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 3200,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, -0.12, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", 0.0, -0.12]
-   ],
-   "meta": {
-    "variant": "kf",
+    "variant": "lean-hold-loose",
     "active": 0.6
    }
   },
@@ -688,119 +695,17 @@
    }
   },
   {
-   "id": "dodge_right.d",
+   "id": "dodge_right.e",
    "motion": "dodge.right",
-   "prompt": "A person in a boxing stance quickly leans their head and upper body to the right then recovers",
+   "prompt": "A person in a boxing stance quickly leans the upper body far to the right and holds it",
    "duration": 0.8,
    "samples": 8,
-   "seed": 3400,
-   "cfg": [2.0, 1.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [0.0, -0.12, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", 0.0, -0.12]
-   ],
-   "meta": {
-    "variant": "loose",
-    "active": 0.6
-   }
-  },
-  {
-   "id": "dodge_back.a",
-   "motion": "dodge.back",
-   "prompt": "A person in a boxing stance quickly hops backward and leans away with fists raised",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 3500,
+   "seed": 11000,
    "cfg": [2.0, 2.0],
    "keyframes": [
     {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [-0.25, 0.0, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", -0.25, 0.0]
-   ],
-   "meta": {
-    "variant": "kf",
-    "active": 0.6
-   }
-  },
-  {
-   "id": "dodge_back.b",
-   "motion": "dodge.back",
-   "prompt": "A person jumps back with a quick small step while leaning their upper body away",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 3600,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [-0.25, 0.0, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", -0.25, 0.0]
-   ],
-   "meta": {
-    "variant": "kf",
-    "active": 0.6
-   }
-  },
-  {
-   "id": "dodge_back.c",
-   "motion": "dodge.back",
-   "prompt": "A person pulls their head and torso back then takes a fast step backward in a fighting stance",
-   "duration": 0.9,
-   "samples": 8,
-   "seed": 3700,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", -0.3, 0.0]
-   ],
-   "meta": {
-    "variant": "start",
-    "active": 0.7
-   }
-  },
-  {
-   "id": "dodge_back.d",
-   "motion": "dodge.back",
-   "prompt": "A person in a boxing stance quickly hops backward and leans away with fists raised",
-   "duration": 0.8,
-   "samples": 8,
-   "seed": 3800,
-   "cfg": [2.0, 1.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
-    {"t": "end", "anchor": "guard", "offset": [-0.25, 0.0, 0]}
-   ],
-   "root": [
-    [0, 0, 0],
-    ["end", -0.25, 0.0]
-   ],
-   "meta": {
-    "variant": "loose",
-    "active": 0.6
-   }
-  },
-  {
-   "id": "duck.a",
-   "motion": "duck",
-   "prompt": "A person in a boxing stance quickly squats down low with fists up then rises back up",
-   "duration": 0.9,
-   "samples": 8,
-   "seed": 3900,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "guard"},
+    {"t": 0.17, "anchor": "dodge.right", "offset": [0, -0.1, 0]},
+    {"t": 0.43, "anchor": "dodge.right", "offset": [0, -0.1, 0]},
     {"t": "end", "anchor": "guard"}
    ],
    "root": [
@@ -808,21 +713,45 @@
     ["end", 0, 0]
    ],
    "meta": {
-    "variant": "kf",
-    "active": 0.7
+    "variant": "lean-hold",
+    "active": 0.6
    }
   },
   {
-   "id": "duck.b",
-   "motion": "duck",
-   "prompt": "A person bends their knees deeply to drop their head low then stands back up into a fighting stance",
-   "duration": 1.0,
+   "id": "dodge_right.f",
+   "motion": "dodge.right",
+   "prompt": "A person quickly leans the upper body to the right then takes a small step to the right",
+   "duration": 0.9,
    "samples": 8,
-   "seed": 4000,
+   "seed": 11100,
    "cfg": [2.0, 2.0],
    "keyframes": [
     {"t": 0, "anchor": "guard"},
-    {"t": 0.4, "anchor": "duck"},
+    {"t": 0.17, "anchor": "dodge.right", "offset": [0, -0.1, 0]},
+    {"t": 0.43, "anchor": "dodge.right", "offset": [0, -0.1, 0]},
+    {"t": "end", "anchor": "guard", "offset": [0.0, -0.15, 0]}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0.0, -0.15]
+   ],
+   "meta": {
+    "variant": "lean-hold-step",
+    "active": 0.65
+   }
+  },
+  {
+   "id": "dodge_right.g",
+   "motion": "dodge.right",
+   "prompt": "A person slips a punch by bending the knees and dipping the head quickly to the right",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 11200,
+   "cfg": [2.0, 1.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.2, "anchor": "dodge.right", "offset": [0, -0.1, 0]},
+    {"t": 0.43, "anchor": "dodge.right", "offset": [0, -0.1, 0]},
     {"t": "end", "anchor": "guard"}
    ],
    "root": [
@@ -830,8 +759,98 @@
     ["end", 0, 0]
    ],
    "meta": {
-    "variant": "mid",
-    "active": 0.75
+    "variant": "lean-hold-loose",
+    "active": 0.6
+   }
+  },
+  {
+   "id": "dodge_back.e",
+   "motion": "dodge.back",
+   "prompt": "A person in a boxing stance quickly leans the upper body back and holds it",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 11300,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.17, "anchor": "dodge.back", "offset": [-0.01, 0, 0.01]},
+    {"t": 0.43, "anchor": "dodge.back", "offset": [-0.01, 0, 0.01]},
+    {"t": "end", "anchor": "guard"}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0, 0]
+   ],
+   "meta": {
+    "variant": "lean-hold",
+    "active": 0.6
+   }
+  },
+  {
+   "id": "dodge_back.f",
+   "motion": "dodge.back",
+   "prompt": "A person quickly leans the upper body back then takes a small step backward with the rear foot",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 11400,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.17, "anchor": "dodge.back", "offset": [-0.01, 0, 0.01]},
+    {"t": 0.43, "anchor": "dodge.back", "offset": [-0.01, 0, 0.01]},
+    {"t": "end", "anchor": "guard", "offset": [-0.2, 0.0, 0]}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", -0.2, 0.0]
+   ],
+   "meta": {
+    "variant": "lean-hold-step",
+    "active": 0.65
+   }
+  },
+  {
+   "id": "dodge_back.g",
+   "motion": "dodge.back",
+   "prompt": "A person pulls the head and shoulders back quickly to avoid a punch while keeping the fists up",
+   "duration": 0.8,
+   "samples": 8,
+   "seed": 11500,
+   "cfg": [2.0, 1.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.2, "anchor": "dodge.back", "offset": [-0.01, 0, 0.01]},
+    {"t": 0.43, "anchor": "dodge.back", "offset": [-0.01, 0, 0.01]},
+    {"t": "end", "anchor": "guard"}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0, 0]
+   ],
+   "meta": {
+    "variant": "lean-hold-loose",
+    "active": 0.6
+   }
+  },
+  {
+   "id": "dodge_back.h",
+   "motion": "dodge.back",
+   "prompt": "A person in a boxing stance quickly steps back with the rear foot and leans away",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 11600,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.23, "anchor": "dodge.back", "offset": [-0.01, 0, 0.01]}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", -0.25, 0]
+   ],
+   "meta": {
+    "variant": "lean-start",
+    "active": 0.7
    }
   },
   {
@@ -857,15 +876,17 @@
    }
   },
   {
-   "id": "duck.d",
+   "id": "duck.e",
    "motion": "duck",
-   "prompt": "A person drops into a low crouch to dodge under a punch then straightens up with hands raised",
+   "prompt": "A person in a boxing stance quickly drops low by bending the knees and holds it then rises",
    "duration": 0.9,
    "samples": 8,
-   "seed": 4200,
-   "cfg": [2.0, 1.0],
+   "seed": 11700,
+   "cfg": [2.0, 2.0],
    "keyframes": [
     {"t": 0, "anchor": "guard"},
+    {"t": 0.2, "anchor": "duck"},
+    {"t": 0.5, "anchor": "duck"},
     {"t": "end", "anchor": "guard"}
    ],
    "root": [
@@ -873,7 +894,52 @@
     ["end", 0, 0]
    ],
    "meta": {
-    "variant": "loose",
+    "variant": "mid-hold",
+    "active": 0.7
+   }
+  },
+  {
+   "id": "duck.f",
+   "motion": "duck",
+   "prompt": "A person ducks under a punch by quickly bending the knees and waist then comes back up",
+   "duration": 1.0,
+   "samples": 8,
+   "seed": 11800,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.25, "anchor": "duck"},
+    {"t": 0.5, "anchor": "duck"},
+    {"t": "end", "anchor": "guard"}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0, 0]
+   ],
+   "meta": {
+    "variant": "mid-hold",
+    "active": 0.75
+   }
+  },
+  {
+   "id": "duck.g",
+   "motion": "duck",
+   "prompt": "A person drops into a low crouch quickly to dodge under a punch then straightens up with hands raised",
+   "duration": 0.9,
+   "samples": 8,
+   "seed": 11900,
+   "cfg": [2.0, 1.0],
+   "keyframes": [
+    {"t": 0, "anchor": "guard"},
+    {"t": 0.23, "anchor": "duck"},
+    {"t": "end", "anchor": "guard"}
+   ],
+   "root": [
+    [0, 0, 0],
+    ["end", 0, 0]
+   ],
+   "meta": {
+    "variant": "mid-loose",
     "active": 0.7
    }
   },
@@ -1066,7 +1132,8 @@
    "meta": {
     "variant": "kf",
     "hit_limb": "l_hand",
-    "key": 0.4
+    "key": 0.4,
+    "hit_frame": 12
    }
   },
   {
@@ -1085,7 +1152,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "l_hand",
-    "key": 0.4
+    "key": 0.4,
+    "hit_frame": 12
    }
   },
   {
@@ -1104,7 +1172,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "l_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1125,7 +1194,8 @@
    "meta": {
     "variant": "start",
     "hit_limb": "l_hand",
-    "key": 0.4
+    "key": 0.4,
+    "hit_frame": 12
    }
   },
   {
@@ -1147,7 +1217,8 @@
    "meta": {
     "variant": "loose",
     "hit_limb": "l_hand",
-    "key": 0.36
+    "key": 0.36,
+    "hit_frame": 11
    }
   },
   {
@@ -1169,7 +1240,8 @@
    "meta": {
     "variant": "kf",
     "hit_limb": "r_hand",
-    "key": 0.4
+    "key": 0.4,
+    "hit_frame": 12
    }
   },
   {
@@ -1188,7 +1260,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "r_hand",
-    "key": 0.4
+    "key": 0.4,
+    "hit_frame": 12
    }
   },
   {
@@ -1207,7 +1280,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "r_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1228,7 +1302,8 @@
    "meta": {
     "variant": "start",
     "hit_limb": "r_hand",
-    "key": 0.4
+    "key": 0.4,
+    "hit_frame": 12
    }
   },
   {
@@ -1250,7 +1325,8 @@
    "meta": {
     "variant": "loose",
     "hit_limb": "r_hand",
-    "key": 0.36
+    "key": 0.36,
+    "hit_frame": 11
    }
   },
   {
@@ -1272,7 +1348,8 @@
    "meta": {
     "variant": "kf",
     "hit_limb": "l_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1291,7 +1368,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "l_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1310,7 +1388,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "l_hand",
-    "key": 0.47
+    "key": 0.47,
+    "hit_frame": 14
    }
   },
   {
@@ -1331,7 +1410,8 @@
    "meta": {
     "variant": "start",
     "hit_limb": "l_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1353,7 +1433,8 @@
    "meta": {
     "variant": "loose",
     "hit_limb": "l_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1375,7 +1456,8 @@
    "meta": {
     "variant": "kf",
     "hit_limb": "r_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1394,7 +1476,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "r_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1413,7 +1496,8 @@
    "meta": {
     "variant": "mid",
     "hit_limb": "r_hand",
-    "key": 0.47
+    "key": 0.47,
+    "hit_frame": 14
    }
   },
   {
@@ -1434,7 +1518,8 @@
    "meta": {
     "variant": "start",
     "hit_limb": "r_hand",
-    "key": 0.43
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1456,41 +1541,8 @@
    "meta": {
     "variant": "loose",
     "hit_limb": "r_hand",
-    "key": 0.43
-   }
-  },
-  {
-   "id": "getup_back.a",
-   "motion": "getup.knees",
-   "prompt": "A person lying on their back sits up then stands up into a fighting stance with fists raised",
-   "duration": 3.0,
-   "samples": 8,
-   "seed": 7100,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "lying.back"},
-    {"t": "end", "anchor": "guard", "offset": [0.3, 0, 0]}
-   ],
-   "meta": {
-    "variant": "kf",
-    "from": "lying.back"
-   }
-  },
-  {
-   "id": "getup_back.b",
-   "motion": "getup.knees",
-   "prompt": "A person gets up off the ground from lying on their back and raises their fists",
-   "duration": 3.5,
-   "samples": 8,
-   "seed": 7200,
-   "cfg": [2.0, 2.0],
-   "keyframes": [
-    {"t": 0, "anchor": "lying.back.2"},
-    {"t": "end", "anchor": "guard", "offset": [0.4, 0, 0]}
-   ],
-   "meta": {
-    "variant": "kf",
-    "from": "lying.back.2"
+    "key": 0.43,
+    "hit_frame": 13
    }
   },
   {
@@ -1510,54 +1562,54 @@
    }
   },
   {
-   "id": "getup_back.d",
+   "id": "getup_back.e",
    "motion": "getup.knees",
    "prompt": "A person lying on their back sits up then stands up into a fighting stance with fists raised",
-   "duration": 3.5,
+   "duration": 3.0,
    "samples": 8,
-   "seed": 7400,
-   "cfg": [2.0, 1.0],
+   "seed": 12000,
+   "cfg": [2.0, 2.0],
    "keyframes": [
     {"t": 0, "anchor": "lying.back"},
-    {"t": "end", "anchor": "guard", "offset": [0.3, 0, 0]}
+    {"t": "end", "anchor": "guard.up", "offset": [0.3, 0, 0]}
    ],
    "meta": {
-    "variant": "loose",
+    "variant": "kf",
     "from": "lying.back"
    }
   },
   {
-   "id": "getup_front.a",
+   "id": "getup_back.f",
    "motion": "getup.knees",
-   "prompt": "A person lying face down pushes up with their arms then stands up into a fighting stance",
-   "duration": 3.0,
+   "prompt": "A person gets up off the ground from lying on their back and raises their fists",
+   "duration": 3.5,
    "samples": 8,
-   "seed": 7500,
+   "seed": 12100,
    "cfg": [2.0, 2.0],
    "keyframes": [
-    {"t": 0, "anchor": "lying.front"},
-    {"t": "end", "anchor": "guard", "offset": [-0.3, 0, 0]}
+    {"t": 0, "anchor": "lying.back.2"},
+    {"t": "end", "anchor": "guard.up", "offset": [0.4, 0, 0]}
    ],
    "meta": {
     "variant": "kf",
-    "from": "lying.front"
+    "from": "lying.back.2"
    }
   },
   {
-   "id": "getup_front.b",
+   "id": "getup_back.g",
    "motion": "getup.knees",
-   "prompt": "A person gets up off the ground from lying on their stomach and raises their fists",
+   "prompt": "A person lying on their back sits up then stands up into a fighting stance with fists raised",
    "duration": 3.5,
    "samples": 8,
-   "seed": 7600,
-   "cfg": [2.0, 2.0],
+   "seed": 12200,
+   "cfg": [2.0, 1.0],
    "keyframes": [
-    {"t": 0, "anchor": "lying.front.2"},
-    {"t": "end", "anchor": "guard", "offset": [-0.2, 0, 0]}
+    {"t": 0, "anchor": "lying.back"},
+    {"t": "end", "anchor": "guard.up", "offset": [0.3, 0, 0]}
    ],
    "meta": {
-    "variant": "kf",
-    "from": "lying.front.2"
+    "variant": "loose",
+    "from": "lying.back"
    }
   },
   {
@@ -1577,16 +1629,50 @@
    }
   },
   {
-   "id": "getup_front.d",
+   "id": "getup_front.e",
+   "motion": "getup.knees",
+   "prompt": "A person lying face down pushes up with their arms then stands up into a fighting stance",
+   "duration": 3.0,
+   "samples": 8,
+   "seed": 12300,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "lying.front"},
+    {"t": "end", "anchor": "guard.up", "offset": [-0.3, 0, 0]}
+   ],
+   "meta": {
+    "variant": "kf",
+    "from": "lying.front"
+   }
+  },
+  {
+   "id": "getup_front.f",
+   "motion": "getup.knees",
+   "prompt": "A person gets up off the ground from lying on their stomach and raises their fists",
+   "duration": 3.5,
+   "samples": 8,
+   "seed": 12400,
+   "cfg": [2.0, 2.0],
+   "keyframes": [
+    {"t": 0, "anchor": "lying.front.2"},
+    {"t": "end", "anchor": "guard.up", "offset": [-0.2, 0, 0]}
+   ],
+   "meta": {
+    "variant": "kf",
+    "from": "lying.front.2"
+   }
+  },
+  {
+   "id": "getup_front.g",
    "motion": "getup.knees",
    "prompt": "A person lying face down pushes up with their arms then stands up into a fighting stance",
    "duration": 3.5,
    "samples": 8,
-   "seed": 7800,
+   "seed": 12500,
    "cfg": [2.0, 1.0],
    "keyframes": [
     {"t": 0, "anchor": "lying.front.2"},
-    {"t": "end", "anchor": "guard", "offset": [-0.3, 0, 0]}
+    {"t": "end", "anchor": "guard.up", "offset": [-0.3, 0, 0]}
    ],
    "meta": {
     "variant": "loose",
@@ -1594,16 +1680,16 @@
    }
   },
   {
-   "id": "getup_stand.a",
+   "id": "getup_stand.d",
    "motion": "getup.stand",
    "prompt": "A person kneeling on both knees stands up then raises their fists into a fighting stance",
    "duration": 2.0,
    "samples": 8,
-   "seed": 7900,
+   "seed": 12600,
    "cfg": [2.0, 2.0],
    "keyframes": [
     {"t": 0, "anchor": "kneel"},
-    {"t": "end", "anchor": "guard", "offset": [0.15, 0, 0]}
+    {"t": "end", "anchor": "guard.up", "offset": [0.15, 0, 0]}
    ],
    "meta": {
     "variant": "kf",
@@ -1611,12 +1697,12 @@
    }
   },
   {
-   "id": "getup_stand.b",
+   "id": "getup_stand.e",
    "motion": "getup.stand",
    "prompt": "A person rises from a kneeling position to standing and puts their hands up",
    "duration": 1.8,
    "samples": 8,
-   "seed": 8000,
+   "seed": 12700,
    "cfg": [2.0, 2.0],
    "keyframes": [
     {"t": 0, "anchor": "kneel"}
@@ -1627,16 +1713,16 @@
    }
   },
   {
-   "id": "getup_stand.c",
+   "id": "getup_stand.f",
    "motion": "getup.stand",
    "prompt": "A person kneeling on both knees stands up then raises their fists into a fighting stance",
    "duration": 2.2,
    "samples": 8,
-   "seed": 8100,
+   "seed": 12800,
    "cfg": [2.0, 1.0],
    "keyframes": [
     {"t": 0, "anchor": "kneel"},
-    {"t": "end", "anchor": "guard", "offset": [0.1, 0, 0]}
+    {"t": "end", "anchor": "guard.up", "offset": [0.1, 0, 0]}
    ],
    "meta": {
     "variant": "loose",
