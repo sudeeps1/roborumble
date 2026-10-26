@@ -1,7 +1,8 @@
 # data/: the spell library snapshot
 
-`library-snapshot/` is the game server's move library as it was at HackTX, Oct 25 2026, 11:30 CDT:
-668 moves (the Claude agent's, the live wildcards players invented, and the showcase spells).
+`library-snapshot/` is the game server's spell library at the end of HackTX 2026: **594 spells**
+(565 from the Claude Library Builder, 25 forged by players, 4 invented live by shouting) and 586 motion files.
+Retired moves (crowd chatter the always-on mic picked up during testing) are left out.
 
 - `moves.jsonl`: one move spec per line (name, aliases, type, kind, effect, power, hit frame, creator, ...)
 - `motions/`: each motion's Unitree G1 joint trajectory (36 numbers per frame, 30 fps), made by Kimodo
@@ -20,7 +21,7 @@ The server copies new moves into `LIBRARY_DIR`, so copy the snapshot first if yo
 
 ## How it ran at HackTX
 
-- Game server: FastAPI on a RunPod RTX 4090, `https://kr2vjwse2bhd6t-8000.proxy.runpod.net` (`/health` for status).
+- Game server: FastAPI on a RunPod RTX 4090 (shut down after the event; `server/setup_pod.sh` rebuilds one).
   Keys are never in the repo: the server reads them from `/root/.muse_key` and `/root/.anthropic_key`.
 - Phones: `<server>/phone/?room=CODE`, or scan the QR code on the big screen.
 - Big screen (the physics fight screen): `cd passive && npm install && npm run setup && npm run dev`, then
