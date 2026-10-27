@@ -152,16 +152,6 @@ cd passive && npm install && npm run setup && npm run dev
 Copy `data/library-snapshot` first if you want to keep it clean: the server writes new spells into
 `LIBRARY_DIR`. API keys (Muse, Anthropic) are read from the environment and never stored in the repo.
 
-## Team
-
-| | Built |
-| --- | --- |
-| **Vaibhav** ([@Vaibhav100968](https://github.com/Vaibhav100968)) | the game server, voice pipeline, Forge, phone controller |
-| **Jixin (Jerry) Wang** | the Claude Library Builder and the first game screen |
-| **Sudeep Reddy** ([@sudeeps1](https://github.com/sudeeps1)) | the physics fight screen, SONIC integration, characters and arena |
-
-Built in 24 hours at **HackTX 2026** for *Most Entertaining*, *Best Pitch* and *Meta*.
-
 ## Credits
 
 [NVIDIA Kimodo](https://research.nvidia.com/labs/sil/projects/kimodo/) (text-to-motion) ·
